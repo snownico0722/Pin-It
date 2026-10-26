@@ -332,7 +332,7 @@ fn on_host_event(app: &Shared, event: host::Event) {
                     a.update_rows_in_place();
                     a.save_soon();
                 }
-                Err(e) => a.message(&e.message(), true),
+                Err(e) => a.message(&e.message(a.zh()), true),
             }
         }
         Hotkey(HOTKEY_WINDOW) => {
@@ -759,7 +759,7 @@ impl App {
 
     fn fill_shortcut_editor(&mut self, s: &store::Shortcuts) {
         let labels = shortcuts::key_labels();
-        let edit = |label: &str, keys: &str| {
+        let edit = |label: &'static str, keys: &str| {
             let p = shortcuts::split(keys);
             ShortcutEdit {
                 label: self.t(label).into(),
@@ -837,7 +837,13 @@ impl App {
             // Put the working set back and say which one Windows refused.
             self.hotkey_problems = apply_shortcuts(&old);
             ui.set_shortcut_error(
-                (if self.zh() { format!("其他程序占用了以下快捷键：{}。请选择其他组合。", failed.iter().map(|s| self.t(s)).collect::<Vec<_>>().join("、")) } else { format!("Another app already uses the keys for: {}. Pick different ones.", failed.join(", ")) }).into(),
+                (if self.zh() { format!("其他程序占用了以下快捷键：{}。请选择其他组合。", failed.iter().map(|s| match s.as_str() {
+                        "Pin / unpin window" => self.t("Pin / unpin window"),
+                        "Increase opacity" => self.t("Increase opacity"),
+                        "Decrease opacity" => self.t("Decrease opacity"),
+                        "Show / hide PinIt" => self.t("Show / hide PinIt"),
+                        other => other,
+                    }).collect::<Vec<_>>().join("、")) } else { format!("Another app already uses the keys for: {}. Pick different ones.", failed.join(", ")) }).into(),
             );
             return;
         }
