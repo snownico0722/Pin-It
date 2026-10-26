@@ -1,10 +1,10 @@
 [package]
 name = "pinit"
-version = "3.0.0"
+version = "3.1.0"
 description = "Keep any window always on top on Windows"
 authors = ["Saqlain Abbas <saqlainrazee@gmail.com>"]
 license = "Apache-2.0"
-repository = "https://github.com/Razee4315/Pin-It"
+repository = "https://github.com/snownico0722/Pin-It"
 edition = "2024"
 rust-version = "1.88"
 

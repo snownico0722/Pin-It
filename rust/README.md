@@ -1,4 +1,4 @@
-# PinIt in Rust (Slint) — work in progress
+# PinIt in Rust (Slint) — release 3.1.0
 
 A pure-Rust port of PinIt: no Qt, no webview, no JavaScript. The UI is
 [Slint](https://slint.dev) and every Windows call goes through the
