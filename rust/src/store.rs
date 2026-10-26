@@ -79,6 +79,7 @@ pub struct Settings {
     pub show_notifications: bool,
     pub has_seen_tray_notice: bool,
     pub start_with_windows: bool,
+    pub ui_language: String,
     pub shortcuts: Shortcuts,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
@@ -91,6 +92,7 @@ impl Default for Settings {
             show_notifications: false,
             has_seen_tray_notice: false,
             start_with_windows: false,
+            ui_language: "system".into(),
             shortcuts: Shortcuts::default(),
             extra: Map::new(),
         }

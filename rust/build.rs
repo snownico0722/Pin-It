@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
 
 fn main() {
-    slint_build::compile("ui/app.slint").expect("Slint UI failed to compile");
+    let config = slint_build::CompilerConfiguration::new().with_bundled_translations("lang");
+    slint_build::compile_with_config("ui/app.slint", config).expect("Slint UI failed to compile");
+    println!("cargo:rerun-if-changed=lang/zh_CN/LC_MESSAGES/pinit.po");
 
     // app.rc carries @PLACEHOLDERS@ for the version, so Cargo.toml stays the
     // only place it is written down. The filled-in copy lives in OUT_DIR,

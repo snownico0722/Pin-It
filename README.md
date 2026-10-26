@@ -146,3 +146,9 @@ PinIt is open source under the **[Apache License 2.0](LICENSE)** — free to use
 Email: saqlainrazee@gmail.com
 
 GitHub: [@Razee4315](https://github.com/Razee4315)
+
+## Languages / 语言
+
+PinIt 3 bundles English and Simplified Chinese inside the single executable. The default follows Windows language. Choose **Settings → Language → Follow system / English / 简体中文** to switch at runtime; the choice is saved locally.
+
+PinIt 3 单文件内置简体中文与英文。默认跟随 Windows 语言，可在「设置 → 语言」中随时切换并保存偏好。

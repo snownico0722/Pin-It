@@ -30,6 +30,7 @@ serde_json = "1"
 # Pinned: windows 0.100 renames every feature and breaks the API.
 windows = { version = "=0.62.2", features = [
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Media_Audio",

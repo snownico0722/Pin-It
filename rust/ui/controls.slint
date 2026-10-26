@@ -361,7 +361,7 @@ export component KeyCombo {
     in property <[string]> keys;
     in property <string> alt-key;   // shown as " / [key]" after the last key
     accessible-role: text;
-    accessible-label: alt-key == "" ? "Shortcut" : "Shortcuts";
+    accessible-label: alt-key == "" ? @tr("ui" => "Shortcut") : @tr("ui" => "Shortcuts");
 
     HorizontalLayout {
         spacing: 3px;
@@ -501,7 +501,7 @@ export component Sheet {
                     }
                     IconButton {
                         icon: Icons.close;
-                        tooltip: "Close";
+                        tooltip: @tr("ui" => "Close");
                         clicked => { root.close(); }
                     }
                 }

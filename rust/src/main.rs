@@ -9,6 +9,7 @@
 mod autostart;
 mod flash;
 mod host;
+mod i18n;
 mod logfile;
 mod pins;
 mod shortcuts;
@@ -86,6 +87,7 @@ fn main() {
 
     let ui = AppWindow::new().expect("could not create the PinIt window");
     let state = store::load();
+    let _ = slint::select_bundled_translation(i18n::locale(&state.settings.ui_language));
     let app: Shared = Rc::new_cyclic(|me| RefCell::new(App {
         me: me.clone(),
         ui: ui.as_weak(),
@@ -117,6 +119,7 @@ fn main() {
         ui.set_sound(a.state.settings.enable_sound);
         ui.set_notifications(a.state.settings.show_notifications);
         ui.set_autostart(autostart::is_enabled());
+        ui.set_language_index(i18n::index(&a.state.settings.ui_language));
     }
 
     {
@@ -240,6 +243,20 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
 
     let a = app.clone();
     ui.on_unpin_all(move || a.borrow_mut().unpin_all());
+
+    let a = app.clone();
+    ui.on_language_changed(move |index| {
+        let mut a = a.borrow_mut();
+        a.state.settings.ui_language = match index {
+            1 => "en",
+            2 => "zh_CN",
+            _ => "system",
+        }.into();
+        let _ = slint::select_bundled_translation(i18n::locale(&a.state.settings.ui_language));
+        a.save_now();
+        a.refresh_shortcut_views();
+        a.pins_changed();
+    });
 
     let a = app.clone();
     ui.on_setting_changed(move |name, on| {

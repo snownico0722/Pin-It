@@ -92,7 +92,7 @@ component PinCard {
                     color: pin.waiting ? Theme.text-muted : Theme.text;
                 }
                 Text {
-                    text: pin.waiting ? "Waiting for " + pin.process : pin.process;
+                    text: pin.waiting ? @tr("ui" => "Waiting for {}", pin.process) : pin.process;
                     overflow: elide;
                     font-size: Theme.tiny;
                     color: Theme.text-muted;
@@ -105,7 +105,7 @@ component PinCard {
                 value: pin.opacity;
                 minimum: 20;
                 maximum: 100;
-                label: "Opacity of " + pin.title;
+                label: @tr("ui" => "Opacity of {}", pin.title);
                 changed(v) => { root.opacity-changed(v); }
             }
             if !pin.waiting: Text {
@@ -124,7 +124,7 @@ component PinCard {
                 background: pin.click-through ? Theme.accent-soft : transparent;
                 IconButton {
                     icon: Icons.pointer;
-                    tooltip: pin.click-through ? "Clicks pass through (on)" : "Clicks pass through (off)";
+                    tooltip: pin.click-through ? @tr("ui" => "Clicks pass through (on)") : @tr("ui" => "Clicks pass through (off)");
                     accessible-role: checkbox;
                     accessible-checkable: true;
                     accessible-checked: pin.click-through;
@@ -135,7 +135,7 @@ component PinCard {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.close;
                 kind: danger-ghost;
-                tooltip: pin.waiting ? "Forget " + pin.title : "Unpin " + pin.title;
+                tooltip: pin.waiting ? @tr("ui" => "Forget {}", pin.title) : @tr("ui" => "Unpin {}", pin.title);
                 clicked => { root.unpin(); }
             }
         }
@@ -148,7 +148,7 @@ component PickRow {
 
     height: 38px;
     accessible-role: button;
-    accessible-label: (item.pinned ? "Unpin " : "Pin ") + item.title + ", " + item.process;
+    accessible-label: item.pinned ? @tr("ui" => "Unpin {} ({})", item.title, item.process) : @tr("ui" => "Pin {} ({})", item.title, item.process);
     accessible-action-default => { root.picked(); }
 
     Rectangle {
@@ -202,7 +202,7 @@ component PickRow {
                         color: Theme.accent-hover;
                     }
                     Text {
-                        text: "Pinned";
+                        text: @tr("ui" => "Pinned");
                         vertical-alignment: center;
                         font-size: Theme.tiny;
                         font-weight: 600;
@@ -268,6 +268,7 @@ export component AppWindow inherits Window {
     in-out property <bool> sound;
     in-out property <bool> notifications;
     in-out property <bool> autostart;
+    in-out property <int> language-index: 0;
     in property <string> version;
     in property <bool> animations <=> Theme.animations;
     out property <bool> dark: Theme.dark;
@@ -301,6 +302,7 @@ export component AppWindow inherits Window {
     callback row-hovered(int, bool);
     callback unpin-all();
     callback setting-changed(string, bool);
+    callback language-changed(int);
     callback open-shortcuts();
     callback shortcut-chip(int, string);
     callback shortcut-key(int, int);
@@ -342,7 +344,7 @@ export component AppWindow inherits Window {
                 height: 28px;
                 icon-size: 17px;
                 icon: Icons.keyboard;
-                tooltip: "Shortcuts";
+                tooltip: @tr("ui" => "Shortcuts");
                 clicked => { root.open-shortcuts(); }
             }
             IconButton {
@@ -350,7 +352,7 @@ export component AppWindow inherits Window {
                 height: 28px;
                 icon-size: 16px;
                 icon: Icons.settings;
-                tooltip: "Settings";
+                tooltip: @tr("ui" => "Settings");
                 clicked => { root.settings-open = true; }
             }
         }
@@ -358,7 +360,7 @@ export component AppWindow inherits Window {
         Button {
             kind: primary;
             icon: Icons.plus;
-            text: "Pin a window…";
+            text: @tr("ui" => "Pin a window…");
             font-size: Theme.body;
             height: 30px;
             horizontal-stretch: 1;
@@ -369,13 +371,13 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             height: 18px;
             SectionTitle {
-                text: pins.length == 0 ? "PINNED" : "PINNED · " + pins.length;
+                text: pins.length == 0 ? @tr("ui" => "PINNED") : @tr("ui" => "PINNED · {}", pins.length);
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
             if pins.length > 0: Button {
                 kind: ghost;
-                text: "Unpin all";
+                text: @tr("ui" => "Unpin all");
                 font-size: Theme.tiny;
                 height: 18px;
                 radius: 5px;
@@ -417,7 +419,7 @@ export component AppWindow inherits Window {
                             }
                         }
                         Text {
-                            text: "Nothing pinned yet";
+                            text: @tr("ui" => "Nothing pinned yet");
                             horizontal-alignment: center;
                             font-size: Theme.body;
                             font-weight: 600;
@@ -441,7 +443,7 @@ export component AppWindow inherits Window {
             alignment: center;
             spacing: 5px;
             Text {
-                text: "Pin the window you're in:";
+                text: @tr("ui" => "Pin the window you're in:");
                 vertical-alignment: center;
                 font-size: Theme.tiny;
                 color: Theme.text-muted;
@@ -485,12 +487,12 @@ export component AppWindow inherits Window {
     // Window picker
     Sheet {
         open: root.picker-open;
-        title: "Pin a window";
+        title: @tr("ui" => "Pin a window");
         sheet-height: 420px;
         close => { root.picker-open = false; }
 
         search := LineEdit {
-            placeholder-text: "Search windows";
+            placeholder-text: @tr("ui" => "Search windows");
             font-size: Theme.body;
             text <=> root.pick-filter;
             edited(t) => { root.filter-changed(t); }
@@ -505,7 +507,7 @@ export component AppWindow inherits Window {
             alignment: center;
             vertical-stretch: 1;
             Text {
-                text: root.pick-filter == "" ? "No windows to pin. Open an app and try again." : "No window matches “" + root.pick-filter + "”.";
+                text: root.pick-filter == "" ? @tr("ui" => "No windows to pin. Open an app and try again.") : @tr("ui" => "No window matches “{}”.", root.pick-filter);
                 horizontal-alignment: center;
                 wrap: word-wrap;
                 font-size: Theme.small;
@@ -528,7 +530,7 @@ export component AppWindow inherits Window {
     // Shortcut editor
     Sheet {
         open: root.shortcuts-open;
-        title: "Shortcuts";
+        title: @tr("ui" => "Shortcuts");
         sheet-height: 420px;
         close => { root.shortcuts-open = false; }
 
@@ -540,7 +542,7 @@ export component AppWindow inherits Window {
                 spacing: 9px;
                 alignment: start;
                 Text {
-                    text: "Each needs Win, Ctrl or Alt.";
+                    text: @tr("ui" => "Each needs Win, Ctrl or Alt.");
                     font-size: Theme.tiny;
                     color: Theme.text-muted;
                 }
@@ -555,7 +557,7 @@ export component AppWindow inherits Window {
                             color: Theme.text;
                         }
                         if edit.unavailable: Text {
-                            text: "· in use by another app";
+                            text: @tr("ui" => "· in use by another app");
                             vertical-alignment: center;
                             horizontal-stretch: 1;
                             font-size: Theme.tiny;
@@ -592,17 +594,17 @@ export component AppWindow inherits Window {
             spacing: 6px;
             Button {
                 kind: ghost;
-                text: "Defaults";
+                text: @tr("ui" => "Defaults");
                 clicked => { root.restore-default-shortcuts(); }
             }
             Rectangle { horizontal-stretch: 1; }
             Button {
-                text: "Cancel";
+                text: @tr("ui" => "Cancel");
                 clicked => { root.shortcuts-open = false; }
             }
             Button {
                 kind: primary;
-                text: "Save";
+                text: @tr("ui" => "Save");
                 clicked => { root.save-shortcuts(); }
             }
         }
@@ -611,26 +613,41 @@ export component AppWindow inherits Window {
     // Settings
     Sheet {
         open: root.settings-open;
-        title: "Settings";
-        sheet-height: 196px;
+        title: @tr("ui" => "Settings");
+        sheet-height: 245px;
         close => { root.settings-open = false; }
 
         VerticalLayout {
             spacing: 0px;
             CheckBox {
-                text: "Play a sound when pinning";
+                text: @tr("ui" => "Play a sound when pinning");
                 checked <=> root.sound;
                 toggled(on) => { root.setting-changed("sound", on); }
             }
             CheckBox {
-                text: "Show a notification when pinning";
+                text: @tr("ui" => "Show a notification when pinning");
                 checked <=> root.notifications;
                 toggled(on) => { root.setting-changed("notifications", on); }
             }
             CheckBox {
-                text: "Start PinIt with Windows";
+                text: @tr("ui" => "Start PinIt with Windows");
                 checked <=> root.autostart;
                 toggled(on) => { root.setting-changed("autostart", on); }
+            }
+            HorizontalLayout {
+                spacing: 8px;
+                Text {
+                    text: @tr("ui" => "Language");
+                    vertical-alignment: center;
+                    color: Theme.text;
+                    font-size: Theme.small;
+                }
+                ComboBox {
+                    horizontal-stretch: 1;
+                    model: [@tr("ui" => "Follow system"), "English", "简体中文"];
+                    current-index <=> root.language-index;
+                    selected(value) => { root.language-changed(self.current-index); }
+                }
             }
         }
         Rectangle { vertical-stretch: 1; }
@@ -639,7 +656,7 @@ export component AppWindow inherits Window {
             Button {
                 kind: ghost;
                 icon: Icons.info;
-                text: "About PinIt";
+                text: @tr("ui" => "About PinIt");
                 clicked => {
                     root.settings-open = false;
                     root.about-open = true;
@@ -651,7 +668,7 @@ export component AppWindow inherits Window {
     // About
     Sheet {
         open: root.about-open;
-        title: "About";
+        title: @tr("ui" => "About");
         sheet-height: 236px;
         close => { root.about-open = false; }
 
@@ -672,7 +689,7 @@ export component AppWindow inherits Window {
                     color: Theme.text;
                 }
                 Text {
-                    text: "by Saqlain Abbas · Apache-2.0";
+                    text: @tr("ui" => "by Saqlain Abbas · Apache-2.0");
                     font-size: Theme.tiny;
                     color: Theme.text-muted;
                 }
@@ -682,11 +699,11 @@ export component AppWindow inherits Window {
             spacing: 6px;
             alignment: start;
             Button {
-                text: "Website";
+                text: @tr("ui" => "Website");
                 clicked => { root.open-url("https://razee4315.github.io/Pin-It/"); }
             }
             Button {
-                text: "Source code";
+                text: @tr("ui" => "Source code");
                 clicked => { root.open-url("https://github.com/Razee4315/Pin-It"); }
             }
         }

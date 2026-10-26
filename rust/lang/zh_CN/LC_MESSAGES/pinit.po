@@ -1,0 +1,156 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_CN\n"
+
+msgctxt "ui"
+msgid "· in use by another app"
+msgstr "· 已被其他程序占用"
+
+msgctxt "ui"
+msgid "About"
+msgstr "关于"
+
+msgctxt "ui"
+msgid "About PinIt"
+msgstr "关于 PinIt"
+
+msgctxt "ui"
+msgid "by Saqlain Abbas · Apache-2.0"
+msgstr "作者 Saqlain Abbas · Apache-2.0"
+
+msgctxt "ui"
+msgid "Cancel"
+msgstr "取消"
+
+msgctxt "ui"
+msgid "Clicks pass through (off)"
+msgstr "鼠标穿透（已关闭）"
+
+msgctxt "ui"
+msgid "Clicks pass through (on)"
+msgstr "鼠标穿透（已开启）"
+
+msgctxt "ui"
+msgid "Close"
+msgstr "关闭"
+
+msgctxt "ui"
+msgid "Defaults"
+msgstr "恢复默认"
+
+msgctxt "ui"
+msgid "Each needs Win, Ctrl or Alt."
+msgstr "每个快捷键必须包含 Win、Ctrl 或 Alt。"
+
+msgctxt "ui"
+msgid "Follow system"
+msgstr "跟随系统"
+
+msgctxt "ui"
+msgid "Forget {}"
+msgstr "移除待恢复：{}"
+
+msgctxt "ui"
+msgid "Language"
+msgstr "语言"
+
+msgctxt "ui"
+msgid "No window matches “{}”."
+msgstr "没有与“{}”匹配的窗口。"
+
+msgctxt "ui"
+msgid "No windows to pin. Open an app and try again."
+msgstr "没有可置顶的窗口，请先打开程序。"
+
+msgctxt "ui"
+msgid "Nothing pinned yet"
+msgstr "暂无置顶窗口"
+
+msgctxt "ui"
+msgid "Opacity of {}"
+msgstr "{} 的不透明度"
+
+msgctxt "ui"
+msgid "Pin {} ({})"
+msgstr "置顶：{}（{}）"
+
+msgctxt "ui"
+msgid "Pin a window"
+msgstr "选择窗口置顶"
+
+msgctxt "ui"
+msgid "Pin a window…"
+msgstr "置顶窗口…"
+
+msgctxt "ui"
+msgid "Pin the window you're in:"
+msgstr "置顶当前窗口："
+
+msgctxt "ui"
+msgid "Pinned"
+msgstr "已置顶"
+
+msgctxt "ui"
+msgid "PINNED"
+msgstr "置顶窗口"
+
+msgctxt "ui"
+msgid "PINNED · {}"
+msgstr "置顶窗口 · {}"
+
+msgctxt "ui"
+msgid "Play a sound when pinning"
+msgstr "置顶时播放提示音"
+
+msgctxt "ui"
+msgid "Save"
+msgstr "保存"
+
+msgctxt "ui"
+msgid "Search windows"
+msgstr "搜索窗口"
+
+msgctxt "ui"
+msgid "Settings"
+msgstr "设置"
+
+msgctxt "ui"
+msgid "Shortcut"
+msgstr "快捷键"
+
+msgctxt "ui"
+msgid "Shortcuts"
+msgstr "快捷键"
+
+msgctxt "ui"
+msgid "Show a notification when pinning"
+msgstr "置顶时显示通知"
+
+msgctxt "ui"
+msgid "Source code"
+msgstr "源代码"
+
+msgctxt "ui"
+msgid "Start PinIt with Windows"
+msgstr "开机启动 PinIt"
+
+msgctxt "ui"
+msgid "Unpin {}"
+msgstr "取消置顶：{}"
+
+msgctxt "ui"
+msgid "Unpin {} ({})"
+msgstr "取消置顶：{}（{}）"
+
+msgctxt "ui"
+msgid "Unpin all"
+msgstr "全部取消置顶"
+
+msgctxt "ui"
+msgid "Waiting for {}"
+msgstr "等待 {}"
+
+msgctxt "ui"
+msgid "Website"
+msgstr "官方网站"
