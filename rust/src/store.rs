@@ -32,6 +32,8 @@ pub struct SavedPin {
     // Default true = "unknown, trust the window", right for older files.
     #[serde(default = "yes")]
     pub was_layered: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_layered: Option<crate::win::LayeredAttributes>,
     #[serde(default = "yes")]
     pub was_topmost: bool,
     #[serde(default = "yes")]
@@ -196,6 +198,7 @@ mod tests {
         assert_eq!(state.pins[0].title, "A");
         assert!(state.pins[0].click_through);
         assert!(!state.pins[0].was_layered);
+        assert!(state.pins[0].original_layered.is_none(), "older pin files remain compatible");
         assert!(state.pins[1].was_layered, "missing flags default to true");
         assert!(!state.settings.enable_sound);
         assert_eq!(state.settings.shortcuts.toggle_pin, "alt+KeyQ");

@@ -15,6 +15,7 @@ pub struct Pinned {
     pub opacity: i32, // percent
     pub click_through: bool,
     was_layered: bool,       // had WS_EX_LAYERED before PinIt touched it
+    original_layered: Option<win::LayeredAttributes>,
     was_topmost: bool,       // was already always-on-top (Task Manager, players)
     was_click_through: bool, // already let clicks through
     opacity_changed: bool,   // PinIt changed its opacity, so undo that on unpin
@@ -27,6 +28,7 @@ pub enum PinError {
     NotPinnable,
     Blocked(String),
     NotPinned,
+    UnsupportedTransparency,
 }
 
 impl PinError {
@@ -40,6 +42,7 @@ impl PinError {
                 format!("Can't pin {app}. It may be running as administrator.")
             }
             PinError::NotPinned => "Pin this window first to change its opacity.".into(),
+            PinError::UnsupportedTransparency => "This window uses custom layered transparency that cannot be safely restored.".into(),
         }
     }
 }
@@ -92,6 +95,8 @@ impl Pins {
         let title = win::window_title(hwnd);
         let process = win::process_name(hwnd);
         let was_topmost = win::is_topmost(hwnd);
+        let was_layered = win::is_layered(hwnd);
+        let original_layered = win::layered_attributes(hwnd);
         // UIPI silently ignores SetWindowPos on elevated windows; checking that
         // the style took is how we notice.
         if !win::apply_topmost(hwnd) || !win::is_topmost(hwnd) {
@@ -107,7 +112,8 @@ impl Pins {
             process,
             opacity: 100,
             click_through: was_click_through,
-            was_layered: win::is_layered(hwnd),
+            was_layered,
+            original_layered,
             was_topmost,
             was_click_through,
             opacity_changed: false,
@@ -120,11 +126,12 @@ impl Pins {
         if !win::is_valid_window(p.hwnd) {
             return false;
         }
-        if p.click_through && !p.was_click_through {
-            win::set_click_through(p.hwnd, false);
+        // Restore the original click-through flag in BOTH directions.
+        if win::is_click_through(p.hwnd) != p.was_click_through {
+            win::set_click_through(p.hwnd, p.was_click_through);
         }
         if p.opacity_changed {
-            win::restore_opacity(p.hwnd, p.was_layered);
+            win::restore_opacity(p.hwnd, p.was_layered, p.original_layered.as_ref());
         }
         if !p.was_topmost {
             win::remove_topmost(p.hwnd);
@@ -162,6 +169,11 @@ impl Pins {
 
     pub fn set_opacity(&mut self, hwnd: Hwnd, percent: i32) -> Result<i32, PinError> {
         let p = self.find(hwnd).ok_or(PinError::NotPinned)?;
+        // Avoid damaging per-pixel alpha windows whose existing layered
+        // attributes cannot be read and restored.
+        if p.was_layered && p.original_layered.is_none() {
+            return Err(PinError::UnsupportedTransparency);
+        }
         let percent = percent.clamp(win::MIN_OPACITY, win::MAX_OPACITY);
         if !win::set_opacity_percent(hwnd, percent) {
             return Err(PinError::Gone);
@@ -217,15 +229,16 @@ impl Pins {
             }
         }
 
-        // Only the window in front is checked: a window that has just opened
-        // is the foreground one, and one window costs next to nothing.
-        let fg = win::foreground_window();
-        if !self.pending.is_empty() && fg != 0 && !self.is_pinned(fg) && win::is_pinnable(fg) {
-            let (title, process) = (win::window_title(fg), win::process_name(fg));
-            if let Some(saved) = self.pending.iter().find(|s| s.matches(&process, &title)).cloned() {
-                if self.apply_saved(fg, &saved) {
-                    out.restored.push(fg);
-                    out.list_changed = true;
+        // Apps can open in the background after login. Scan all eligible
+        // windows only while saved pins are waiting, on the existing timer.
+        if !self.pending.is_empty() {
+            for w in win::enumerate_windows() {
+                if self.is_pinned(w.hwnd) { continue; }
+                if let Some(saved) = self.pending.iter().find(|s| s.matches(&w.process, &w.title)).cloned() {
+                    if self.apply_saved(w.hwnd, &saved) {
+                        out.restored.push(w.hwnd);
+                        out.list_changed = true;
+                    }
                 }
             }
         }
@@ -241,6 +254,7 @@ impl Pins {
         // know better.
         if let Some(p) = self.find(hwnd) {
             p.was_layered &= saved.was_layered;
+            p.original_layered = saved.original_layered.clone().or(p.original_layered.clone());
             p.was_topmost &= saved.was_topmost;
             p.was_click_through &= saved.was_click_through;
         }
@@ -302,6 +316,7 @@ impl Pins {
                 opacity: win::percent_to_alpha(p.opacity) as i32,
                 click_through: p.click_through,
                 was_layered: p.was_layered,
+                original_layered: p.original_layered.clone(),
                 was_topmost: p.was_topmost,
                 was_click_through: p.was_click_through,
                 extra: Default::default(),

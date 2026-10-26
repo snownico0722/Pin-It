@@ -29,6 +29,25 @@ pub type Hwnd = isize;
 pub const MIN_OPACITY: i32 = 20;
 pub const MAX_OPACITY: i32 = 100;
 
+/// Original layered attributes, captured before PinIt modifies another window.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LayeredAttributes {
+    pub color_key: u32,
+    pub alpha: u8,
+    pub flags: u32,
+}
+
+pub fn layered_attributes(hwnd: Hwnd) -> Option<LayeredAttributes> {
+    if !is_layered(hwnd) { return None; }
+    let mut color = COLORREF(0);
+    let mut alpha: u8 = 255;
+    let mut flags = LAYERED_WINDOW_ATTRIBUTES_FLAGS(0);
+    unsafe {
+        GetLayeredWindowAttributes(h(hwnd), Some(&mut color), Some(&mut alpha), Some(&mut flags)).ok()?;
+    }
+    Some(LayeredAttributes { color_key: color.0, alpha, flags: flags.0 })
+}
+
 fn h(hwnd: Hwnd) -> HWND {
     HWND(hwnd as *mut _)
 }
@@ -201,10 +220,17 @@ pub fn set_click_through(hwnd: Hwnd, enabled: bool) -> bool {
 
 /// Undo `set_opacity_percent`. `keep_layered`: the window was layered before
 /// PinIt touched it (it manages its own transparency), so leave its style.
-pub fn restore_opacity(hwnd: Hwnd, keep_layered: bool) {
+pub fn restore_opacity(hwnd: Hwnd, keep_layered: bool, original: Option<&LayeredAttributes>) {
     unsafe {
-        let _ = SetLayeredWindowAttributes(h(hwnd), COLORREF(0), 255, LWA_ALPHA);
         if keep_layered {
+            // Restore the original alpha and colour key rather than forcing
+            // a layered window to become opaque.
+            if let Some(previous) = original {
+                let _ = SetLayeredWindowAttributes(
+                    h(hwnd), COLORREF(previous.color_key), previous.alpha,
+                    LAYERED_WINDOW_ATTRIBUTES_FLAGS(previous.flags),
+                );
+            }
             return;
         }
         let ex = ex_style(hwnd);
