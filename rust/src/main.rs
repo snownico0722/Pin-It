@@ -332,7 +332,10 @@ fn on_host_event(app: &Shared, event: host::Event) {
                     a.update_rows_in_place();
                     a.save_soon();
                 }
-                Err(e) => a.message(&e.message(a.zh()), true),
+                Err(e) => {
+                    let message = e.message(a.zh());
+                    a.message(&message, true);
+                },
             }
         }
         Hotkey(HOTKEY_WINDOW) => {
@@ -561,7 +564,10 @@ impl App {
                 self.save_now();
                 self.pins_changed();
             }
-            Err(e) => self.message(&e.message(self.zh()), true),
+            Err(e) => {
+                let message = e.message(self.zh());
+                self.message(&message, true);
+            },
         }
     }
 
