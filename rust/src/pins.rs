@@ -32,7 +32,20 @@ pub enum PinError {
 }
 
 impl PinError {
-    pub fn message(&self) -> String {
+    pub fn message(&self, chinese: bool) -> String {
+        if chinese {
+            return match self {
+                PinError::NoWindow => "没有可置顶的窗口，请先选择窗口。".into(),
+                PinError::Gone => "目标窗口已不存在。".into(),
+                PinError::NotPinnable => "该窗口无法置顶。".into(),
+                PinError::Blocked(app) => {
+                    let app = if app.is_empty() { "该窗口" } else { app };
+                    format!("无法置顶 {app}，它可能以管理员身份运行。")
+                }
+                PinError::NotPinned => "请先置顶窗口，再调整不透明度。".into(),
+                PinError::UnsupportedTransparency => "目标窗口使用特殊透明模式，无法安全恢复原始状态。".into(),
+            };
+        }
         match self {
             PinError::NoWindow => "No window to pin. Click a window first.".into(),
             PinError::Gone => "That window no longer exists.".into(),
