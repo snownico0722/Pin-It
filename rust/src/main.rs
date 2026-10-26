@@ -433,6 +433,12 @@ fn tray_menu(app: &Shared, x: i32, y: i32) {
 /// Make a shortcut set live. Returns the names of the actions Windows
 /// refused (another app owns the keys) or that aren't valid.
 fn apply_shortcuts(s: &store::Shortcuts) -> Vec<String> {
+    // Release the whole previous set before applying a new one. Otherwise
+    // swapping two hotkeys fails because each key is still owned by the other
+    // action while RegisterHotKey runs.
+    for id in [HOTKEY_PIN, HOTKEY_OPACITY_UP, HOTKEY_OPACITY_DOWN, HOTKEY_WINDOW] {
+        host::unregister_hotkey(id);
+    }
     let mut failed = Vec::new();
     for (id, keys, name) in [
         (HOTKEY_PIN, &s.toggle_pin, "Pin / unpin window"),
