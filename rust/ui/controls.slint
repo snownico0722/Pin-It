@@ -503,6 +503,7 @@ export component AppAvatar inherits Rectangle {
 export component Sheet {
     in property <bool> open;
     in property <string> title;
+    in property <string> subtitle: "";
     in property <length> sheet-height: 520px;
     callback close();
 
@@ -516,7 +517,18 @@ export component Sheet {
     animate opacity { duration: Theme.medium; easing: ease-out; }
 
     Rectangle {
-        background: Theme.scrim;
+        background: transparent;
+        // Rounded opacity mask: Slint's software renderer clips children to
+        // a square even when the outer card is rounded. The tinted nine-slice
+        // scrim preserves the shell's transparent corners.
+        Image {
+            width: parent.width;
+            height: parent.height;
+            image-fit: fill;
+            source: Theme.dark
+                ? @image-url("../../resources/ui-dimmer-dark.png", nine-slice(24))
+                : @image-url("../../resources/ui-dimmer-light.png", nine-slice(24));
+        }
         TouchArea {
             clicked => { root.close(); }
         }
@@ -528,13 +540,19 @@ export component Sheet {
         height: min(root.sheet-height, root.height - 16px);
         y: open ? parent.height - self.height - 8px : parent.height;
         animate y { duration: Theme.medium; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
-        border-radius: 12px;
-        background: Theme.window;
-        border-width: 1px;
-        border-color: Theme.card-border;
-        drop-shadow-blur: 30px;
-        drop-shadow-offset-y: 8px;
-        drop-shadow-color: #00000040;
+        // The rounded panel and its shadow are a real image, not unsupported
+        // Rectangle drop-shadow properties (which were invisible in software).
+        background: transparent;
+        Image {
+            x: -8px;
+            y: -8px;
+            width: parent.width + 16px;
+            height: parent.height + 16px;
+            image-fit: fill;
+            source: Theme.dark
+                ? @image-url("../../resources/ui-sheet-dark.png", nine-slice(36))
+                : @image-url("../../resources/ui-sheet-light.png", nine-slice(36));
+        }
 
         TouchArea { }   // keep clicks on the sheet from closing it
 
@@ -553,6 +571,7 @@ export component Sheet {
                 spacing: 9px;
 
                 HorizontalLayout {
+                    spacing: 6px;
                     Text {
                         text: root.title;
                         vertical-alignment: center;
@@ -562,6 +581,16 @@ export component Sheet {
                         color: Theme.text;
                         accessible-role: text;
                     }
+                    if root.subtitle != "": Text {
+                        text: root.subtitle;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        overflow: elide;
+                        font-size: Theme.tiny;
+                        color: Theme.text-muted;
+                        accessible-role: text;
+                    }
+                    if root.subtitle == "": Rectangle { horizontal-stretch: 1; }
                     IconButton {
                         icon: Icons.close;
                         tooltip: @tr("ui" => "Close");
