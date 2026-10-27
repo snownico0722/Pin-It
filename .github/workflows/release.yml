@@ -1,4 +1,4 @@
-name: Release PinIt 3.1.0
+name: Release PinIt 3.3.0
 
 # Builds the Rust/Slint app in rust/, runs its tests, and produces the
 # Windows installer and portable ZIP on every push/PR. Tagging a version
@@ -126,6 +126,6 @@ jobs:
           test -f release/PinIt-portable-x64.zip
           test -f release/PinIt-setup-x64.exe
           tag="v$(sed -n 's/^version = "\([^"]*\)"/\1/p' rust/Cargo.toml | head -1)"
-          test "$tag" = "v3.1.0"
-          gh release create "$tag" release/PinIt-portable-x64.zip release/PinIt-setup-x64.exe release/PinIt_3.1.0_x64-setup.exe release/SHA256SUMS.txt \
-            --title "PinIt 3.1.0" --target "$GITHUB_SHA" --notes-file RELEASE_NOTES_3.1.0.md --latest
+          test "$tag" = "v3.3.0"
+          gh release create "$tag" release/PinIt-portable-x64.zip release/PinIt-setup-x64.exe "release/PinIt_${tag#v}_x64-setup.exe" release/SHA256SUMS.txt \
+            --title "PinIt ${tag#v}" --target "$GITHUB_SHA" --notes-file "RELEASE_NOTES_${tag#v}.md" --latest
