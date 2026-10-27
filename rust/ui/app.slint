@@ -4,7 +4,7 @@
 import { ScrollView, LineEdit, ComboBox, AboutSlint } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 import {
-    Glyph, Button, ButtonKind, IconButton, CheckBox, Slider, KeyCombo, Card, SectionTitle, AppAvatar, Sheet
+    Glyph, Button, ButtonKind, IconButton, CheckBox, Slider, KeyCombo, Card, SectionTitle, AppAvatar, AppMark, Sheet
 } from "controls.slint";
 
 export { Theme }
@@ -257,14 +257,16 @@ export component AppWindow inherits Window {
     no-frame: true;
     resize-border-width: 6px;
     icon: @image-url("../../resources/icon-256.png");
-    background: Theme.window;
+    background: transparent;
     default-font-family: Theme.font;
     default-font-size: Theme.body;
-    preferred-width: 340px;
-    min-width: 340px;
-    max-width: 340px;
-    preferred-height: 350px;
-    min-height: 260px;
+    // 16px transparent breathing room on each side for the real soft shadow.
+    // The inner panel keeps the previous 340px content width.
+    preferred-width: 372px;
+    min-width: 372px;
+    max-width: 372px;
+    preferred-height: 382px;
+    min-height: 292px;
 
     // State from Rust
     in property <[PinRow]> pins;
@@ -320,10 +322,28 @@ export component AppWindow inherits Window {
         search.focus();
     }
 
-    VerticalLayout {
-        padding: 12px;
-        padding-top: 10px;
-        spacing: 8px;
+    // A real translucent window with an inset rounded panel. Merely setting
+    // DWMWA_WINDOW_CORNER_PREFERENCE doesn't reliably round WS_POPUP windows,
+    // and clipping an HWND region would discard its DWM corners/shadow.
+    // This draws the outline, radius and shadow consistently on Windows 10/11.
+    Rectangle {
+        x: 16px;
+        y: 16px;
+        width: parent.width - 32px;
+        height: parent.height - 32px;
+        background: Theme.window;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.window-outline;
+        drop-shadow-blur: 18px;
+        drop-shadow-offset-y: 3px;
+        drop-shadow-color: Theme.window-shadow;
+        clip: true;
+
+        VerticalLayout {
+            padding: 12px;
+            padding-top: 10px;
+            spacing: 8px;
 
         // Compact frameless titlebar. Only the brand portion starts a native
         // move; the window controls and drag-to-pin target stay independent.
@@ -334,12 +354,10 @@ export component AppWindow inherits Window {
                 horizontal-stretch: 1;
                 HorizontalLayout {
                     spacing: 6px;
-                    Image {
+                    // Small-size vector mark: the raster ICO loses the fine
+                    // paper/pushpin edges when squeezed to a 24px header.
+                    AppMark {
                         y: (parent.height - self.height) / 2;
-                        source: @image-url("../../resources/icon-48.png");
-                        width: 24px;
-                        height: 24px;
-                        image-rendering: smooth;
                     }
                     Text {
                         text: "PinIt";
@@ -369,7 +387,7 @@ export component AppWindow inherits Window {
                     color: root.pin-drag-active ? Theme.accent-hover : Theme.text-muted;
                 }
                 drag-pin-touch := TouchArea {
-                    mouse-cursor: grab;
+                    mouse-cursor: root.pin-drag-active ? grabbing : grab;
                     pointer-event(event) => {
                         if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
                             root.start-pin-drag();
@@ -772,5 +790,5 @@ export component AppWindow inherits Window {
                 height: 64px;
             }
         }
-    }
+        }
 }
