@@ -253,9 +253,10 @@ component ModifierChip {
 export component AppWindow inherits Window {
     title: "PinIt";
     // Keep the operating system window, but render its chrome in Slint.
-    // Winit retains an invisible native resize border for vertical sizing.
+    // Keep the native resize hit-test around the visible card, not merely
+    // at the outer edge of the 16px transparent shadow margin.
     no-frame: true;
-    resize-border-width: 6px;
+    resize-border-width: 20px;
     icon: @image-url("../../resources/icon-256.png");
     background: transparent;
     default-font-family: Theme.font;
