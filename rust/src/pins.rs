@@ -4,7 +4,7 @@
 //! on a timer and when the foreground window changes, and saves whatever
 //! `saved()` returns.
 
-use crate::store::SavedPin;
+use crate::store::{self, SavedPin};
 use crate::win::{self, Hwnd};
 
 #[derive(Clone, Debug)]
@@ -29,6 +29,7 @@ pub enum PinError {
     Blocked(String),
     NotPinned,
     UnsupportedTransparency,
+    RestoreFailed,
 }
 
 impl PinError {
@@ -44,6 +45,7 @@ impl PinError {
                 }
                 PinError::NotPinned => "请先置顶窗口，再调整不透明度。".into(),
                 PinError::UnsupportedTransparency => "目标窗口使用特殊透明模式，无法安全恢复原始状态。".into(),
+                PinError::RestoreFailed => "取消置顶时未能完全恢复窗口状态，请检查目标窗口。".into(),
             };
         }
         match self {
@@ -56,6 +58,7 @@ impl PinError {
             }
             PinError::NotPinned => "Pin this window first to change its opacity.".into(),
             PinError::UnsupportedTransparency => "This window uses custom layered transparency that cannot be safely restored.".into(),
+            PinError::RestoreFailed => "Unpinned, but could not fully restore the window's original state.".into(),
         }
     }
 }
@@ -118,7 +121,7 @@ impl Pins {
         }
         crate::logfile::info!("Pinned a window of {process}");
         let was_click_through = win::is_click_through(hwnd);
-        self.pending.retain(|p| !p.matches(&process, &title));
+        store::consume_one_matching(&mut self.pending, &process, &title);
         self.pinned.push(Pinned {
             hwnd,
             title,
@@ -134,39 +137,48 @@ impl Pins {
         Ok(())
     }
 
-    /// Give a window back the way PinIt found it. False if it has closed.
+    /// Attempt every restoration even when an earlier Win32 operation failed.
+    /// The UI still allows removing the pin; it reports partial failure instead
+    /// of incorrectly claiming that the foreign window was fully restored.
     fn release(p: &Pinned) -> bool {
         if !win::is_valid_window(p.hwnd) {
-            return false;
+            return true; // closed windows need no restoration
         }
-        // Restore the original click-through flag in BOTH directions.
+        let mut ok = true;
         if win::is_click_through(p.hwnd) != p.was_click_through {
-            win::set_click_through(p.hwnd, p.was_click_through);
+            ok &= win::set_click_through(p.hwnd, p.was_click_through);
         }
         if p.opacity_changed {
-            win::restore_opacity(p.hwnd, p.was_layered, p.original_layered.as_ref());
+            ok &= win::restore_opacity(p.hwnd, p.was_layered, p.original_layered.as_ref());
         }
         if !p.was_topmost {
-            win::remove_topmost(p.hwnd);
+            ok &= win::remove_topmost(p.hwnd) && !win::is_topmost(p.hwnd);
         }
-        true
+        if !ok {
+            crate::logfile::warning!("Could not completely restore a window of {}", p.process);
+        }
+        ok
     }
 
-    pub fn unpin(&mut self, hwnd: Hwnd) -> Option<Pinned> {
+    pub fn unpin(&mut self, hwnd: Hwnd) -> Option<(Pinned, bool)> {
         let i = self.pinned.iter().position(|p| p.hwnd == hwnd)?;
         let p = self.pinned.remove(i);
-        Self::release(&p);
-        Some(p)
+        let restored = Self::release(&p);
+        Some((p, restored))
     }
 
     /// Unpin every window and stop waiting for the pending ones.
-    pub fn unpin_all(&mut self) -> usize {
+    /// Returns how many windows were unpinned and how many failed restoration.
+    pub fn unpin_all(&mut self) -> (usize, usize) {
         let n = self.pinned.len();
+        let mut failures = 0;
         for p in self.pinned.drain(..) {
-            Self::release(&p);
+            if !Self::release(&p) {
+                failures += 1;
+            }
         }
         self.pending.clear();
-        n
+        (n, failures)
     }
 
     /// Ok(true) = now pinned, Ok(false) = now unpinned.
@@ -174,8 +186,8 @@ impl Pins {
         if hwnd == 0 {
             return Err(PinError::NoWindow);
         }
-        if self.unpin(hwnd).is_some() {
-            return Ok(false);
+        if let Some((_, restored)) = self.unpin(hwnd) {
+            return if restored { Ok(false) } else { Err(PinError::RestoreFailed) };
         }
         self.pin(hwnd).map(|_| true)
     }
@@ -272,11 +284,11 @@ impl Pins {
             p.was_click_through &= saved.was_click_through;
         }
         let percent = win::alpha_to_percent(saved.opacity);
-        if percent < 100 {
-            let _ = self.set_opacity(hwnd, percent);
+        if percent < 100 && self.set_opacity(hwnd, percent).is_err() {
+            crate::logfile::warning!("Could not restore opacity for {}", saved.process_name);
         }
-        if saved.click_through {
-            let _ = self.set_click_through(hwnd, true);
+        if saved.click_through && self.set_click_through(hwnd, true).is_err() {
+            crate::logfile::warning!("Could not restore click-through for {}", saved.process_name);
         }
         true
     }

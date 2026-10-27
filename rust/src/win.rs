@@ -113,10 +113,9 @@ fn ex_style(hwnd: Hwnd) -> u32 {
     unsafe { GetWindowLongW(h(hwnd), GWL_EXSTYLE) as u32 }
 }
 
-fn set_ex_style(hwnd: Hwnd, style: u32) {
-    unsafe {
-        SetWindowLongW(h(hwnd), GWL_EXSTYLE, style as i32);
-    }
+fn set_ex_style(hwnd: Hwnd, style: u32) -> bool {
+    unsafe { SetWindowLongW(h(hwnd), GWL_EXSTYLE, style as i32); }
+    ex_style(hwnd) == style
 }
 
 pub fn is_topmost(hwnd: Hwnd) -> bool {
@@ -283,51 +282,62 @@ pub fn remove_topmost(hwnd: Hwnd) -> bool {
 pub fn set_opacity_percent(hwnd: Hwnd, percent: i32) -> bool {
     let percent = percent.clamp(MIN_OPACITY, MAX_OPACITY);
     let ex = ex_style(hwnd);
-    if ex & WS_EX_LAYERED.0 == 0 {
-        set_ex_style(hwnd, ex | WS_EX_LAYERED.0);
+    let added_layered = ex & WS_EX_LAYERED.0 == 0;
+    // Keep an existing colour key; otherwise making the window translucent
+    // would turn formerly transparent pixels into visible ones.
+    let attrs = layered_attributes(hwnd);
+    if added_layered && !set_ex_style(hwnd, ex | WS_EX_LAYERED.0) {
+        return false;
     }
-    unsafe {
-        SetLayeredWindowAttributes(h(hwnd), COLORREF(0), percent_to_alpha(percent), LWA_ALPHA).is_ok()
+    let flags = if attrs.as_ref().is_some_and(|a| a.flags & LWA_COLORKEY.0 != 0) {
+        LWA_ALPHA | LWA_COLORKEY
+    } else {
+        LWA_ALPHA
+    };
+    let colour = attrs.as_ref().map_or(0, |a| a.color_key);
+    let success = unsafe {
+        SetLayeredWindowAttributes(h(hwnd), COLORREF(colour), percent_to_alpha(percent), flags).is_ok()
+    };
+    // If modifying a normal window fails, leave it as a normal window.
+    if !success && added_layered {
+        let _ = set_ex_style(hwnd, ex);
     }
+    success
 }
 
 pub fn set_click_through(hwnd: Hwnd, enabled: bool) -> bool {
     let ex = ex_style(hwnd);
     let wanted = if enabled { ex | WS_EX_TRANSPARENT.0 } else { ex & !WS_EX_TRANSPARENT.0 };
-    if wanted != ex {
-        set_ex_style(hwnd, wanted);
+    if wanted != ex && !set_ex_style(hwnd, wanted) {
+        return false;
     }
     is_click_through(hwnd) == enabled
 }
 
 /// Undo `set_opacity_percent`. `keep_layered`: the window was layered before
 /// PinIt touched it (it manages its own transparency), so leave its style.
-pub fn restore_opacity(hwnd: Hwnd, keep_layered: bool, original: Option<&LayeredAttributes>) {
+pub fn restore_opacity(hwnd: Hwnd, keep_layered: bool, original: Option<&LayeredAttributes>) -> bool {
     unsafe {
         if keep_layered {
-            // Restore the original alpha and colour key rather than forcing
-            // a layered window to become opaque.
-            if let Some(previous) = original {
-                let _ = SetLayeredWindowAttributes(
+            // Restore the original alpha and colour key, not just opacity.
+            return original.is_some_and(|previous|
+                SetLayeredWindowAttributes(
                     h(hwnd), COLORREF(previous.color_key), previous.alpha,
                     LAYERED_WINDOW_ATTRIBUTES_FLAGS(previous.flags),
-                );
-            }
-            return;
-        }
-        let ex = ex_style(hwnd);
-        if ex & WS_EX_LAYERED.0 != 0 {
-            set_ex_style(hwnd, ex & !WS_EX_LAYERED.0);
-            let _ = SetWindowPos(
-                h(hwnd),
-                None,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                ).is_ok()
             );
         }
+        let ex = ex_style(hwnd);
+        if ex & WS_EX_LAYERED.0 == 0 {
+            return true;
+        }
+        if !set_ex_style(hwnd, ex & !WS_EX_LAYERED.0) {
+            return false;
+        }
+        SetWindowPos(
+            h(hwnd), None, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        ).is_ok()
     }
 }
 
