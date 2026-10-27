@@ -19,6 +19,67 @@ export component Glyph inherits Path {
     stroke-line-cap: round;
 }
 
+// Top-left brand mark, simplified for a small header instead of downscaling
+// the detailed 48px ICO. Vector edges stay sharp on mixed-DPI monitors while
+// preserving the original paper + pushpin silhouette and colours.
+export component AppMark {
+    width: 26px;
+    height: 26px;
+    // Slightly rotated sage paper in the back.
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M4 10 L20 7.5 Q22.5 7 23 9.5 L26.6 24 Q27.2 26.2 24.5 27 L7 30 Q4.7 30.5 4.3 27.5 L2.2 13 Q2 11.1 4 10 Z";
+        fill: #849674;
+        stroke: #373c30;
+        stroke-width: 1.3px;
+    }
+    // Larger white page, with a small beige folded heading.
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M7 6.7 L24.6 4.8 Q27 4.6 27.4 7 L29.4 23.1 Q29.7 25.5 27.2 25.9 L9.7 28 Q7.2 28.2 6.8 25.9 L4.7 9.6 Q4.4 7 7 6.7 Z";
+        fill: #fffdfa;
+        stroke: #35302b;
+        stroke-width: 1.5px;
+    }
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M5 11 L27.7 8.7";
+        fill: transparent;
+        stroke: #e6d9cc;
+        stroke-width: 1.4px;
+    }
+    // Copper tack: its dark point is deliberately more pronounced at 26px.
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M24.5 5.7 L20.2 15.6 L20.4 11.2 L22.5 7.6 Z";
+        fill: #bd8654;
+        stroke: #4c3425;
+        stroke-width: 1.2px;
+    }
+    Path {
+        width: parent.width;
+        height: parent.height;
+        viewbox-width: 32;
+        viewbox-height: 32;
+        commands: "M22.7 2.4 Q26.4 0.1 29.9 3 Q32.3 5.2 30.3 8.3 Q27.4 9.7 24.1 7.3 Q21 5.1 22.7 2.4 Z";
+        fill: #bd8455;
+        stroke: #443024;
+        stroke-width: 1.3px;
+    }
+}
+
 export enum ButtonKind { primary, secondary, ghost, danger-ghost }
 
 export component Button {
