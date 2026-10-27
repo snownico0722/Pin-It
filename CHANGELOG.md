@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- Render the main window and modal sheet corners and hairline borders with native DPI-aware Slint rounded Rectangles, leaving only the soft penumbra in nine-slice images. This avoids jagged bitmap corners at mixed Windows display scaling without switching renderer or changing window behavior.
+
+### Fixed
 - Rebuilt the rounded main-window and sheet shadow assets with a **single soft neutral penumbra**, reduced opacity and a thin, low-contrast edge; removes the dark brown layered halo.
 - Expanded the frameless header's native move area across the full upper band and padding, stopping precisely at the OS resize border; clickable controls and the drag-to-pin gesture retain their own pointer handling.
 

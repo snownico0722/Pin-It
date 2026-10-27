@@ -540,8 +540,9 @@ export component Sheet {
         height: min(root.sheet-height, root.height - 16px);
         y: open ? parent.height - self.height - 8px : parent.height;
         animate y { duration: Theme.medium; easing: cubic-bezier(0.2, 0.9, 0.25, 1); }
-        // The rounded panel and its shadow are a real image, not unsupported
-        // Rectangle drop-shadow properties (which were invisible in software).
+        // Draw only the soft shadow from the 9-slice image. The rounded
+        // surface and border are native Slint geometry, so the curved edge
+        // remains anti-aliased at 100/125/150/200% scaling.
         background: transparent;
         Image {
             x: -8px;
@@ -552,6 +553,14 @@ export component Sheet {
             source: Theme.dark
                 ? @image-url("../../resources/ui-sheet-dark.png", nine-slice(36))
                 : @image-url("../../resources/ui-sheet-light.png", nine-slice(36));
+        }
+        Rectangle {
+            width: parent.width;
+            height: parent.height;
+            background: Theme.window;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: Theme.window-outline;
         }
 
         TouchArea { }   // keep clicks on the sheet from closing it

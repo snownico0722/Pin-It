@@ -322,9 +322,10 @@ export component AppWindow inherits Window {
         search.focus();
     }
 
-    // The small Slint software renderer does NOT implement drop shadows or
-    // rounded child clipping. Render the frame and shadow from a rounded
-    // nine-slice image instead: its alpha survives resizes in either theme.
+    // Slint's software renderer anti-aliases rounded Rectangles, but
+    // nearest-samples the RGBA nine-slice image across DPI scales.
+    // Keep the nine-slice for the soft *shadow only*. The actual rounded
+    // card and hairline border are native vector geometry below.
     Image {
         source: Theme.dark
             ? @image-url("../../resources/ui-shell-dark.png", nine-slice(40))
@@ -338,9 +339,13 @@ export component AppWindow inherits Window {
         y: 16px;
         width: parent.width - 32px;
         height: parent.height - 32px;
-        // The frame image behind us already paints the rounded card. Do not
-        // overlay an opaque rectangle or a square clip on its rounded corners.
-        background: transparent;
+        // The raster asset behind this Rectangle is shadow-only; draw the
+        // visible corners and subtle border through Slint's native
+        // anti-aliased rounded-rectangle path at the current monitor DPI.
+        background: Theme.window;
+        border-radius: 12px;
+        border-width: 1px;
+        border-color: Theme.window-outline;
 
         // The entire top band inside the native 20px resize border is a
         // window-move target, including the margin above the title and the
