@@ -40,6 +40,10 @@ msgid "Defaults"
 msgstr "恢复默认"
 
 msgctxt "ui"
+msgid "Drag to pin a window"
+msgstr "拖动图钉到窗口上置顶"
+
+msgctxt "ui"
 msgid "Each needs Win, Ctrl or Alt."
 msgstr "每个快捷键必须包含 Win、Ctrl 或 Alt。"
 
@@ -54,6 +58,10 @@ msgstr "移除待恢复：{}"
 msgctxt "ui"
 msgid "Language"
 msgstr "语言"
+
+msgctxt "ui"
+msgid "Minimize"
+msgstr "最小化"
 
 msgctxt "ui"
 msgid "No window matches “{}”."

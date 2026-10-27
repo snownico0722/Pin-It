@@ -45,6 +45,8 @@ const HOTKEY_WINDOW: i32 = 4;
 const OPACITY_STEP: i32 = 10;
 // 48px covers 18–24px UI icons through common 200% display scaling.
 const ICON_PX: u32 = 48;
+const DRAG_POLL_INTERVAL_MS: u64 = 16;
+const DRAG_THRESHOLD_PX: u32 = 6;
 
 const MENU_SHOW: u32 = 1;
 const MENU_PICK: u32 = 2;
@@ -56,6 +58,11 @@ const MENU_PINNED: u32 = 100;
 enum RowKey {
     Live(Hwnd),
     Waiting(usize),
+}
+
+struct PinDrag {
+    start: (i32, i32),
+    hover: Option<Hwnd>,
 }
 
 struct App {
@@ -74,6 +81,8 @@ struct App {
     visible: bool,
     reenforce_timer: slint::Timer,
     save_timer: slint::Timer,
+    pin_drag: Option<PinDrag>,
+    pin_drag_timer: slint::Timer,
 }
 
 type Shared = Rc<RefCell<App>>;
@@ -106,6 +115,8 @@ fn main() {
         visible: false,
         reenforce_timer: slint::Timer::default(),
         save_timer: slint::Timer::default(),
+        pin_drag: None,
+        pin_drag_timer: slint::Timer::default(),
     }));
 
     {
@@ -155,6 +166,7 @@ fn main() {
         ui.window().on_close_requested(move || {
             let mut a = app.borrow_mut();
             a.visible = false;
+            a.cancel_pin_drag();
             flash::hide();
             if !a.state.settings.has_seen_tray_notice {
                 a.state.settings.has_seen_tray_notice = true;
@@ -175,6 +187,9 @@ fn main() {
 fn connect_ui(ui: &AppWindow, app: &Shared) {
     let a = app.clone();
     ui.on_open_picker(move || a.borrow_mut().open_picker());
+
+    let a = app.clone();
+    ui.on_start_pin_drag(move || a.borrow_mut().begin_pin_drag());
 
     let a = app.clone();
     ui.on_filter_changed(move |_| a.borrow_mut().filter_picker());
@@ -517,6 +532,7 @@ impl App {
     }
 
     fn hide_window(&mut self) {
+        self.cancel_pin_drag();
         flash::hide();
         if let Some(ui) = self.ui() {
             let _ = ui.hide();
@@ -570,6 +586,79 @@ impl App {
                 let message = e.message(self.zh());
                 self.message(&message, true);
             },
+        }
+    }
+
+    /// Begin a native pointer drag. The mouse can leave the Slint window,
+    /// so release and target selection use GetAsyncKeyState/GetCursorPos.
+    /// The App's own timer is stopped on release, escape, or window hide.
+    fn begin_pin_drag(&mut self) {
+        if self.pin_drag.is_some() || !self.visible {
+            return;
+        }
+        self.pin_drag = Some(PinDrag { start: host::cursor_pos(), hover: None });
+        if let Some(ui) = self.ui() {
+            ui.set_pin_drag_active(true);
+        }
+        let weak = self.me.clone();
+        self.pin_drag_timer.start(
+            slint::TimerMode::Repeated,
+            Duration::from_millis(DRAG_POLL_INTERVAL_MS),
+            move || {
+                if let Some(app) = weak.upgrade() {
+                    app.borrow_mut().poll_pin_drag();
+                }
+            },
+        );
+    }
+
+    fn poll_pin_drag(&mut self) {
+        let Some(drag) = self.pin_drag.as_ref() else { return };
+        let (x, y) = host::cursor_pos();
+        let distance = x.abs_diff(drag.start.0).max(y.abs_diff(drag.start.1));
+        if win::drag_cancelled_by_escape() {
+            self.cancel_pin_drag();
+            return;
+        }
+        let released = !win::drag_mouse_down();
+        // A plain click on the pin cannot accidentally pin a random window.
+        if distance < DRAG_THRESHOLD_PX {
+            if released {
+                self.cancel_pin_drag();
+            }
+            return;
+        }
+        let target = win::window_at_point(x, y);
+        if drag.hover != target {
+            if let Some(active) = self.pin_drag.as_mut() {
+                active.hover = target;
+            }
+            flash::hide();
+            if !released {
+                if let Some(hwnd) = target {
+                    flash::show(hwnd, flash::Kind::Hover);
+                }
+            }
+        }
+        if released {
+            self.cancel_pin_drag();
+            if let Some(hwnd) = target {
+                // Drag-to-pin adds a pin; it never toggles an existing pin off.
+                if !self.pins.is_pinned(hwnd) {
+                    self.toggle(hwnd, false);
+                }
+            }
+        }
+    }
+
+    fn cancel_pin_drag(&mut self) {
+        if self.pin_drag.take().is_none() {
+            return;
+        }
+        self.pin_drag_timer.stop();
+        flash::hide();
+        if let Some(ui) = self.ui() {
+            ui.set_pin_drag_active(false);
         }
     }
 

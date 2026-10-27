@@ -5,7 +5,7 @@
 
 use std::mem::size_of;
 
-use windows::Win32::Foundation::{CloseHandle, COLORREF, HWND, LPARAM, RECT, TRUE, WPARAM};
+use windows::Win32::Foundation::{CloseHandle, COLORREF, HWND, LPARAM, POINT, RECT, TRUE, WPARAM};
 use windows::Win32::Graphics::Dwm::{
     DwmGetWindowAttribute, DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_CLOAKED,
     DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_USE_IMMERSIVE_DARK_MODE,
@@ -15,6 +15,7 @@ use windows::Win32::Graphics::Gdi::{
     BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
 };
 use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -182,6 +183,50 @@ pub fn is_pinnable(hwnd: Hwnd) -> bool {
         return false; // PinIt's own windows
     }
     !is_shell_class(&class_name(hwnd))
+}
+
+/// Read physical pointer/button state on the interactive desktop. This stays
+/// active while the mouse leaves PinIt's Slint window during a drag.
+pub fn drag_mouse_down() -> bool {
+    unsafe { GetAsyncKeyState(i32::from(VK_LBUTTON.0)) < 0 }
+}
+
+pub fn drag_cancelled_by_escape() -> bool {
+    unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) < 0 }
+}
+
+/// Resolve a point on the virtual desktop to a visible, pinnable, top-level
+/// window. Applying the same constraints as the picker prevents accidentally
+/// pinning our overlay, PinIt, taskbars or shell surfaces.
+/// Coordinates must be *physical screen pixels* (GetCursorPos).
+pub fn window_at_point(x: i32, y: i32) -> Option<Hwnd> {
+    unsafe {
+        let found = WindowFromPoint(POINT { x, y });
+        if found.0.is_null() {
+            return None;
+        }
+        let hwnd = GetAncestor(found, GA_ROOT);
+        if hwnd.0.is_null() {
+            return None;
+        }
+        let id = hwnd.0 as Hwnd;
+        if !is_pinnable(id) || !IsWindowVisible(hwnd).as_bool() {
+            return None;
+        }
+        if GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOOLWINDOW.0 != 0 {
+            return None;
+        }
+        let mut cloaked = 0u32;
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut _ as *mut _,
+            size_of::<u32>() as u32,
+        ).is_ok() && cloaked != 0 {
+            return None;
+        }
+        (!window_title(id).is_empty()).then_some(id)
+    }
 }
 
 pub fn apply_topmost(hwnd: Hwnd) -> bool {
