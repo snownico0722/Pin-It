@@ -19,7 +19,7 @@
   #define MyAppNumericVersion MyAppVersion
 #endif
 #define MyAppPublisher "Saqlain Abbas"
-#define MyAppURL "https://github.com/Razee4315/Pin-It"
+#define MyAppURL "https://github.com/snownico0722/Pin-It"
 #define MyAppExeName "PinIt.exe"
 
 [Setup]
