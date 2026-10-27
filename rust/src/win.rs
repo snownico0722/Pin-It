@@ -15,7 +15,7 @@ use windows::Win32::Graphics::Gdi::{
     BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
 };
 use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE, VK_LBUTTON};
+use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, VK_ESCAPE, VK_LBUTTON};
 use windows::Win32::System::Threading::{
     GetCurrentProcessId, OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -193,6 +193,43 @@ pub fn drag_mouse_down() -> bool {
 
 pub fn drag_cancelled_by_escape() -> bool {
     unsafe { GetAsyncKeyState(i32::from(VK_ESCAPE.0)) < 0 }
+}
+
+/// Keep the native crosshair visible even outside our Slint window. The
+/// capture belongs to PinIt's UI thread and is held only for the mouse drag.
+/// Never change the global/system cursor configuration with SetSystemCursor.
+pub fn start_pin_drag_cursor(hwnd: Hwnd) {
+    unsafe {
+        if is_valid_window(hwnd) {
+            SetCapture(h(hwnd));
+            maintain_pin_drag_cursor();
+        }
+    }
+}
+
+/// Refresh after pointer movement; other window classes may reset the cursor
+/// in WM_SETCURSOR, so keep asserting it only while actively dragging.
+pub fn maintain_pin_drag_cursor() {
+    unsafe {
+        if let Ok(cross) = LoadCursorW(None, IDC_CROSS) {
+            let _ = SetCursor(Some(cross));
+        }
+    }
+}
+
+pub fn stop_pin_drag_cursor(hwnd: Option<Hwnd>) {
+    unsafe {
+        if let Some(owner) = hwnd {
+            if GetCapture() == h(owner) {
+                let _ = ReleaseCapture();
+            }
+        }
+        // The owner normally receives WM_SETCURSOR after capture changes;
+        // explicitly reset it for stationary pointers as well.
+        if let Ok(arrow) = LoadCursorW(None, IDC_ARROW) {
+            let _ = SetCursor(Some(arrow));
+        }
+    }
 }
 
 /// Resolve a point on the virtual desktop to a visible, pinnable, top-level

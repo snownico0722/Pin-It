@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- The frameless PinIt window now has a visible theme-aware hairline outline,
+  fully rounded corners and a soft shadow drawn inside the translucent window;
+  the content retains the same 340px width and can still be resized vertically.
+- Dragging the titlebar pushpin changes the pointer to a native target crosshair
+  until the drop or Escape and restores the normal cursor afterwards.
+- Replaced the blurry small header ICO raster with a simplified, DPI-independent
+  vector paper-and-pin logo. The EXE, tray and About icon assets stay unchanged.
+
 ### Changed
 - A frameless, draggable PinIt titlebar with explicit minimize and close-to-tray controls; a drag handle adds an external window to the pinned list without toggling existing pins.
 - The header, About panel, and window/taskbar now use appropriate source images extracted from the multi-resolution icon rather than scaling the old 128px PNG for everything.

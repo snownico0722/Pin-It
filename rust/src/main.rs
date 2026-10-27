@@ -63,6 +63,7 @@ enum RowKey {
 struct PinDrag {
     start: (i32, i32),
     hover: Option<Hwnd>,
+    capture: Option<Hwnd>,
 }
 
 struct App {
@@ -596,7 +597,11 @@ impl App {
         if self.pin_drag.is_some() || !self.visible {
             return;
         }
-        self.pin_drag = Some(PinDrag { start: host::cursor_pos(), hover: None });
+        let capture = self.main_hwnd();
+        self.pin_drag = Some(PinDrag { start: host::cursor_pos(), hover: None, capture });
+        if let Some(owner) = capture {
+            win::start_pin_drag_cursor(owner);
+        }
         if let Some(ui) = self.ui() {
             ui.set_pin_drag_active(true);
         }
@@ -614,6 +619,10 @@ impl App {
 
     fn poll_pin_drag(&mut self) {
         let Some(drag) = self.pin_drag.as_ref() else { return };
+        // Keep the native target crosshair even as the pointer leaves PinIt.
+        if drag.capture.is_some() {
+            win::maintain_pin_drag_cursor();
+        }
         let (x, y) = host::cursor_pos();
         let distance = x.abs_diff(drag.start.0).max(y.abs_diff(drag.start.1));
         if win::drag_cancelled_by_escape() {
@@ -652,10 +661,11 @@ impl App {
     }
 
     fn cancel_pin_drag(&mut self) {
-        if self.pin_drag.take().is_none() {
+        let Some(drag) = self.pin_drag.take() else {
             return;
-        }
+        };
         self.pin_drag_timer.stop();
+        win::stop_pin_drag_cursor(drag.capture);
         flash::hide();
         if let Some(ui) = self.ui() {
             ui.set_pin_drag_active(false);
