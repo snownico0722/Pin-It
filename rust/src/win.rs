@@ -11,8 +11,8 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_USE_IMMERSIVE_DARK_MODE,
 };
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, SelectObject, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetObjectW, SelectObject,
+    BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
 };
 use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows::Win32::System::Threading::{
@@ -296,14 +296,26 @@ pub fn enumerate_windows() -> Vec<WindowInfo> {
         .collect()
 }
 
-/// The icon a window shows in its title bar / the taskbar, as premultiplied
-/// RGBA pixels (`size` x `size`). None if the window has no icon.
+/// The window's icon as premultiplied RGBA (`size` x `size`).
+/// Prefer a native image at least as large as the requested size: the 16px
+/// ICON_SMALL2 is often unsuitable for high-DPI UI. Never resize with GDI.
 pub fn window_icon_rgba(hwnd: Hwnd, size: u32) -> Option<Vec<u8>> {
+    if size == 0 {
+        return None;
+    }
     const TIMEOUT_MS: u32 = 100;
     unsafe {
-        let mut icon: usize = 0;
-        // Ask the window first (a hung app can't block us), then its class.
-        for which in [ICON_SMALL2, ICON_SMALL, ICON_BIG] {
+        let mut handles = Vec::<HICON>::new();
+        let mut push_unique = |raw: usize| {
+            if raw != 0 && !handles.iter().any(|h| h.0 as usize == raw) {
+                handles.push(HICON(raw as *mut _));
+            }
+        };
+
+        // WM_GETICON may expose different *native* sizes for the same window.
+        // Keep the timeout for hung applications and inspect all available
+        // resolutions, including the class icons.
+        for which in [ICON_BIG, ICON_SMALL2, ICON_SMALL] {
             let mut result = 0usize;
             let ok = SendMessageTimeoutW(
                 h(hwnd),
@@ -314,27 +326,79 @@ pub fn window_icon_rgba(hwnd: Hwnd, size: u32) -> Option<Vec<u8>> {
                 TIMEOUT_MS,
                 Some(&mut result),
             );
-            if ok.0 != 0 && result != 0 {
-                icon = result;
-                break;
+            if ok.0 != 0 {
+                push_unique(result);
             }
         }
-        if icon == 0 {
-            icon = GetClassLongPtrW(h(hwnd), GCLP_HICONSM);
+        push_unique(GetClassLongPtrW(h(hwnd), GCLP_HICON));
+        push_unique(GetClassLongPtrW(h(hwnd), GCLP_HICONSM));
+        drop(push_unique);
+
+        // GetIconInfo reports the actual bitmap dimensions without DPI
+        // virtualization. Prefer the nearest size that avoids upscaling;
+        // if unavailable, take the largest small icon.
+        let mut icons: Vec<_> = handles
+            .into_iter()
+            .map(|icon| (icon, icon_dimensions(icon)))
+            .collect();
+        icons.sort_by_key(|(_, dimensions)| crate::icon_resize::source_rank(*dimensions, size));
+
+        for (icon, dimensions) in icons {
+            // Ordinary ICO resources top out at 256px. Bound the DIB
+            // allocation even for malformed or unusually large HICONs.
+            let (width, height) = dimensions.unwrap_or((size, size));
+            let (width, height) = (width.min(256), height.min(256));
+            // Borrowed from another process: do not DestroyIcon.
+            if let Some(native) = icon_to_rgba(icon, width, height) {
+                if let Some(resized) =
+                    crate::icon_resize::resize_premultiplied_rgba(&native, width, height, size)
+                {
+                    return Some(resized);
+                }
+            }
         }
-        if icon == 0 {
-            icon = GetClassLongPtrW(h(hwnd), GCLP_HICON);
-        }
-        if icon == 0 {
-            return None;
-        }
-        // The icon belongs to the other app: draw it, never destroy it.
-        icon_to_rgba(HICON(icon as *mut _), size)
+        None
     }
 }
 
-unsafe fn icon_to_rgba(icon: HICON, size: u32) -> Option<Vec<u8>> {
+/// Dimensions of the actual HICON bitmap, not the system's default icon
+/// metrics. GetIconInfo allocates new GDI bitmaps, which we own and delete.
+unsafe fn icon_dimensions(icon: HICON) -> Option<(u32, u32)> {
     unsafe {
+        let mut info = ICONINFO::default();
+        GetIconInfo(icon, &mut info).ok()?;
+        let monochrome = info.hbmColor.0.is_null();
+        let bitmap = if monochrome { info.hbmMask } else { info.hbmColor };
+        let mut details = BITMAP::default();
+        let bytes = if bitmap.0.is_null() {
+            0
+        } else {
+            GetObjectW(
+                bitmap.into(),
+                size_of::<BITMAP>() as i32,
+                Some(&mut details as *mut BITMAP as *mut core::ffi::c_void),
+            )
+        };
+        if !info.hbmColor.0.is_null() {
+            let _ = DeleteObject(info.hbmColor.into());
+        }
+        if !info.hbmMask.0.is_null() {
+            let _ = DeleteObject(info.hbmMask.into());
+        }
+        if bytes == 0 || details.bmWidth <= 0 || details.bmHeight <= 0 {
+            return None;
+        }
+        // A monochrome icon's mask stores AND and XOR planes vertically.
+        let height = if monochrome { details.bmHeight / 2 } else { details.bmHeight };
+        (height > 0).then_some((details.bmWidth as u32, height as u32))
+    }
+}
+
+/// Rasterize the selected source at its *native* dimensions. Alpha is
+/// premultiplied by DrawIconEx onto a transparent 32-bit DIB.
+unsafe fn icon_to_rgba(icon: HICON, width: u32, height: u32) -> Option<Vec<u8>> {
+    unsafe {
+        let len = (width as usize).checked_mul(height as usize)?.checked_mul(4)?;
         let dc = CreateCompatibleDC(None);
         if dc.is_invalid() {
             return None;
@@ -343,8 +407,8 @@ unsafe fn icon_to_rgba(icon: HICON, size: u32) -> Option<Vec<u8>> {
             let info = BITMAPINFO {
                 bmiHeader: BITMAPINFOHEADER {
                     biSize: size_of::<BITMAPINFOHEADER>() as u32,
-                    biWidth: size as i32,
-                    biHeight: -(size as i32), // top-down
+                    biWidth: width as i32,
+                    biHeight: -(height as i32), // top-down
                     biPlanes: 1,
                     biBitCount: 32,
                     biCompression: BI_RGB.0,
@@ -354,10 +418,13 @@ unsafe fn icon_to_rgba(icon: HICON, size: u32) -> Option<Vec<u8>> {
             };
             let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
             let bmp = CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
-            let len = (size * size * 4) as usize;
+            if bits.is_null() {
+                let _ = DeleteObject(bmp.into());
+                return None;
+            }
             std::ptr::write_bytes(bits as *mut u8, fill, len);
             let old = SelectObject(dc, bmp.into());
-            let drawn = DrawIconEx(dc, 0, 0, icon, size as i32, size as i32, 0, None, flags);
+            let drawn = DrawIconEx(dc, 0, 0, icon, width as i32, height as i32, 0, None, flags);
             SelectObject(dc, old);
             let pixels = std::slice::from_raw_parts(bits as *const u8, len).to_vec();
             let _ = DeleteObject(bmp.into());
@@ -367,8 +434,8 @@ unsafe fn icon_to_rgba(icon: HICON, size: u32) -> Option<Vec<u8>> {
 
         let result = (|| {
             let mut bgra = draw(DI_NORMAL, 0)?;
-            // Old-style icons carry no alpha channel: take opacity from the mask
-            // (drawn black where the icon is opaque).
+            // Legacy icons have no per-pixel alpha; recover it from the AND
+            // mask rather than letting their opaque pixels vanish.
             if bgra.chunks_exact(4).all(|p| p[3] == 0) {
                 let mask = draw(DI_MASK, 0xff)?;
                 for (px, m) in bgra.chunks_exact_mut(4).zip(mask.chunks_exact(4)) {
@@ -381,7 +448,7 @@ unsafe fn icon_to_rgba(icon: HICON, size: u32) -> Option<Vec<u8>> {
                 }
             }
             for px in bgra.chunks_exact_mut(4) {
-                px.swap(0, 2); // BGRA -> RGBA
+                px.swap(0, 2); // BGRA -> premultiplied RGBA
             }
             Some(bgra)
         })();
