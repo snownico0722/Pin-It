@@ -388,7 +388,7 @@ export component AppWindow inherits Window {
                     color: root.pin-drag-active ? Theme.accent-hover : Theme.text-muted;
                 }
                 drag-pin-touch := TouchArea {
-                    mouse-cursor: root.pin-drag-active ? grabbing : grab;
+                    mouse-cursor: root.pin-drag-active ? crosshair : grab;
                     pointer-event(event) => {
                         if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
                             root.start-pin-drag();
