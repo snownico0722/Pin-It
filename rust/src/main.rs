@@ -10,6 +10,7 @@ mod autostart;
 mod flash;
 mod host;
 mod i18n;
+mod icon_resize;
 mod logfile;
 mod pins;
 mod shortcuts;
@@ -42,7 +43,8 @@ const HOTKEY_OPACITY_UP: i32 = 2;
 const HOTKEY_OPACITY_DOWN: i32 = 3;
 const HOTKEY_WINDOW: i32 = 4;
 const OPACITY_STEP: i32 = 10;
-const ICON_PX: u32 = 32;
+// 48px covers 18–24px UI icons through common 200% display scaling.
+const ICON_PX: u32 = 48;
 
 const MENU_SHOW: u32 = 1;
 const MENU_PICK: u32 = 2;
