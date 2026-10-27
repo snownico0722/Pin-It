@@ -42,6 +42,17 @@ pub struct SavedPin {
     pub extra: Map<String, Value>,
 }
 
+/// Consume one saved window, never all identically titled windows. Multiple
+/// Explorer/editor windows often have the same process and title.
+pub(crate) fn consume_one_matching(pending: &mut Vec<SavedPin>, process: &str, title: &str) -> bool {
+    if let Some(i) = pending.iter().position(|p| p.matches(process, title)) {
+        pending.remove(i);
+        true
+    } else {
+        false
+    }
+}
+
 impl SavedPin {
     /// A saved pin belongs to a live window of the same app showing the same
     /// title. Matching on the app alone pinned whichever of its windows came
@@ -216,6 +227,17 @@ mod tests {
         assert!(state.pins.is_empty());
         assert!(state.settings.enable_sound);
         assert!(serde_json::from_str::<State>("not json").is_err());
+    }
+
+    #[test]
+    fn identical_saved_windows_are_consumed_one_at_a_time() {
+        let pin: SavedPin = serde_json::from_str(r#"{"process_name":"explorer.exe","title":"Documents"}"#).unwrap();
+        let mut pending = vec![pin.clone(), pin];
+        assert!(consume_one_matching(&mut pending, "explorer.exe", "Documents"));
+        assert_eq!(pending.len(), 1);
+        assert!(consume_one_matching(&mut pending, "EXPLORER.EXE", "Documents"));
+        assert!(pending.is_empty());
+        assert!(!consume_one_matching(&mut pending, "explorer.exe", "Documents"));
     }
 
     #[test]

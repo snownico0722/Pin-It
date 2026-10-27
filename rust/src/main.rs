@@ -584,6 +584,12 @@ impl App {
                 self.pins_changed();
             }
             Err(e) => {
+                // A partial native unpin failure still removes the pin. Keep
+                // the list and saved state in sync, but tell the user.
+                if e == pins::PinError::RestoreFailed {
+                    self.save_now();
+                    self.pins_changed();
+                }
                 let message = e.message(self.zh());
                 self.message(&message, true);
             },
@@ -674,14 +680,22 @@ impl App {
 
     fn unpin_all(&mut self) {
         flash::hide();
-        let n = self.pins.unpin_all();
+        let (n, failures) = self.pins.unpin_all();
         self.save_now();
         self.pins_changed();
-        self.toast(&match n {
-            0 => self.t("Nothing to unpin.").to_string(),
-            1 => if self.zh() { "已取消置顶 1 个窗口。".to_string() } else { "Unpinned 1 window.".to_string() },
-            n => if self.zh() { format!("已取消置顶 {n} 个窗口。") } else { format!("Unpinned {n} windows.") },
-        });
+        if failures != 0 {
+            self.message(&format!(
+                "{} {}",
+                self.t("Unpinned"),
+                pins::PinError::RestoreFailed.message(self.zh())
+            ), true);
+        } else {
+            self.toast(&match n {
+                0 => self.t("Nothing to unpin.").to_string(),
+                1 => if self.zh() { "已取消置顶 1 个窗口。".to_string() } else { "Unpinned 1 window.".to_string() },
+                n => if self.zh() { format!("已取消置顶 {n} 个窗口。") } else { format!("Unpinned {n} windows.") },
+            });
+        }
     }
 
     fn reenforce(&mut self) {
