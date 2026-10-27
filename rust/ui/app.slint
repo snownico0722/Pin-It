@@ -342,35 +342,46 @@ export component AppWindow inherits Window {
         // overlay an opaque rectangle or a square clip on its rounded corners.
         background: transparent;
 
+        // The entire top band inside the native 20px resize border is a
+        // window-move target, including the margin above the title and the
+        // gaps between controls. Place it BEHIND the interactive buttons:
+        // their TouchAreas still receive clicks and the pin has its own
+        // cross-window drag gesture. The last 8px before the primary action
+        // belong to the title band too, never to the content button.
+        WindowMoveArea {
+            x: 4px;
+            y: 4px;
+            width: parent.width - 8px;
+            height: 44px;
+            enabled: !root.pin-drag-active && !root.picker-open
+                && !root.shortcuts-open && !root.settings-open;
+        }
+
         VerticalLayout {
             padding: 12px;
             padding-top: 10px;
             spacing: 8px;
 
-        // Compact frameless titlebar. Only the brand portion starts a native
-        // move; the window controls and drag-to-pin target stay independent.
+        // All header spacing, branding and non-button pixels can start a
+        // native move. Buttons stay clickable; the pin stays draggable.
         HorizontalLayout {
             height: 30px;
             spacing: 3px;
-            WindowMoveArea {
+            HorizontalLayout {
                 horizontal-stretch: 1;
-                HorizontalLayout {
-                    spacing: 6px;
-                    // Small-size vector mark: the raster ICO loses the fine
-                    // paper/pushpin edges when squeezed to a 24px header.
-                    AppMark {
-                        y: (parent.height - self.height) / 2;
-                    }
-                    Text {
-                        text: "PinIt";
-                        vertical-alignment: center;
-                        horizontal-stretch: 1;
-                        font-family: Theme.display-font;
-                        font-size: 15px;
-                        font-weight: 700;
-                        color: Theme.text;
-                        accessible-role: text;
-                    }
+                spacing: 6px;
+                AppMark {
+                    y: (parent.height - self.height) / 2;
+                }
+                Text {
+                    text: "PinIt";
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    font-family: Theme.display-font;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: Theme.text;
+                    accessible-role: text;
                 }
             }
             Rectangle {
