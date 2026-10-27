@@ -684,11 +684,7 @@ impl App {
         self.save_now();
         self.pins_changed();
         if failures != 0 {
-            self.message(&format!(
-                "{} {}",
-                self.t("Unpinned"),
-                pins::PinError::RestoreFailed.message(self.zh())
-            ), true);
+            self.message(&pins::PinError::RestoreFailed.message(self.zh()), true);
         } else {
             self.toast(&match n {
                 0 => self.t("Nothing to unpin.").to_string(),
