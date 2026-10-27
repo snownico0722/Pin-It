@@ -10,8 +10,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/snownico0722/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/Razee4315/Pin-It?style=flat-square" alt="Latest release"></a>
-  <a href="https://github.com/snownico0722/Pin-It/releases"><img src="https://img.shields.io/github/downloads/Razee4315/Pin-It/total?style=flat-square" alt="Downloads"></a>
+  <a href="https://github.com/snownico0722/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/snownico0722/Pin-It?style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/snownico0722/Pin-It/releases"><img src="https://img.shields.io/github/downloads/snownico0722/Pin-It/total?style=flat-square" alt="Downloads"></a>
   <a href="https://github.com/snownico0722/Pin-It/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="Platform"></a>
   <a href="https://slint.dev"><img src="https://img.shields.io/badge/built%20with-Rust%20%26%20Slint-427BB9?style=flat-square" alt="Built with Rust and Slint"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square" alt="License: Apache 2.0"></a>
@@ -122,7 +122,7 @@ cargo build --release --locked
 
 The portable executable is `rust/target/release/pinit.exe`. CI packages it as `PinIt.exe` and builds the [Inno Setup](https://jrsoftware.org/isinfo.php) installer.
 
-> Windows CI (`.github/workflows/build.yml`) tests and packages every change. The 3.3 release workflow (`.github/workflows/release.yml`) publishes CI-verified installer and portable ZIP assets with SHA-256 checksums.
+> Windows CI (`.github/workflows/build.yml`) tests and packages every change. The release workflow (`.github/workflows/release.yml`) publishes CI-verified installer and portable ZIP assets with SHA-256 checksums.
 
 ## Why PinIt?
 
@@ -151,12 +151,12 @@ GitHub: [@Razee4315](https://github.com/Razee4315)
 
 ## Languages / 语言
 
-PinIt 3 bundles English and Simplified Chinese inside the single executable. The default follows Windows language. Choose **Settings → Language → Follow system / English / 简体中文** to switch at runtime; the choice is saved locally.
+PinIt 4 bundles English and Simplified Chinese inside the single executable. The default follows Windows language. Choose **Settings → Language → Follow system / English / 简体中文** to switch at runtime; the choice is saved locally.
 
-PinIt 3 单文件内置简体中文与英文。默认跟随 Windows 语言，可在「设置 → 语言」中随时切换并保存偏好。
+PinIt 4 单文件内置简体中文与英文。默认跟随 Windows 语言，可在「设置 → 语言」中随时切换并保存偏好。
 
-## Version 3.3.0 (fork)
+## Version 4.0.0 (fork)
 
-The 3.3.0 release includes a frameless, draggable titlebar, a drag-to-pin picker, native-resolution window icon selection, sharp vector header artwork, software-rendered rounded shadows, and a simplified Settings GitHub/version link. The 3.1.0 improvements to Chinese translation, language selection, and window-state restoration remain included. See [Releases](https://github.com/snownico0722/Pin-It/releases) for CI-built installer and portable assets (Windows binaries are not Authenticode-signed).
+PinIt 4.0.0 includes the compact frameless UI, drag-to-pin picker, native-resolution window icons, built-in Chinese/English translations, and automatic pin restoration. This release refines native-DPI rounded corners, softens shadows, expands the draggable titlebar area, and fixes opacity restoration and duplicate saved-pin handling. See [Releases](https://github.com/snownico0722/Pin-It/releases) for CI-built installer and portable assets (Windows binaries are not Authenticode-signed).
 
 Fork maintained at [@snownico0722](https://github.com/snownico0722); original project by [Saqlain Abbas / Razee4315](https://github.com/Razee4315/Pin-It).

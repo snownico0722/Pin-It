@@ -1,4 +1,4 @@
-# PinIt in Rust (Slint) — release 3.3.0
+# PinIt in Rust (Slint) — release 4.0.0
 
 A pure-Rust port of PinIt: no Qt, no webview, no JavaScript. The UI is
 [Slint](https://slint.dev) and every Windows call goes through the
@@ -32,10 +32,11 @@ PinIt's frameless title area can be dragged to move the window. Drag the
 pushpin left of **Shortcuts** onto another visible application window and
 release to pin it. The same window is never unpinned by dragging the pin.
 The top-right minus minimizes PinIt and the close button hides it to the tray.
-The bottom edge remains resizable vertically. The 3.3 UI uses alpha-masked
-nine-slice assets for the rounded window, dialogs, and modal dimmers: Slint's
-software renderer does not natively support `drop-shadow` or rounded
-clipping. The Settings footer links directly to the fork maintainer's GitHub.
+The bottom edge remains resizable vertically. The 4.0 UI draws rounded
+window and dialog surfaces with Slint's native DPI-aware geometry and keeps
+nine-slice assets for the subtle shadows and dimmed backdrop. This avoids
+relying on unsupported software-renderer shadow and rounded clipping
+features. The Settings footer links directly to the fork maintainer's GitHub.
 
 To run next to an installed PinIt without touching it, set `PINIT_DEV=1`.
 The build then uses `%LOCALAPPDATA%\PinIt-dev`, its own single-instance lock,
