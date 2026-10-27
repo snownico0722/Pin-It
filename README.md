@@ -13,11 +13,11 @@
   <a href="https://github.com/snownico0722/Pin-It/releases/latest"><img src="https://img.shields.io/github/v/release/Razee4315/Pin-It?style=flat-square" alt="Latest release"></a>
   <a href="https://github.com/snownico0722/Pin-It/releases"><img src="https://img.shields.io/github/downloads/Razee4315/Pin-It/total?style=flat-square" alt="Downloads"></a>
   <a href="https://github.com/snownico0722/Pin-It/releases/latest"><img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?style=flat-square" alt="Platform"></a>
-  <a href="https://www.qt.io"><img src="https://img.shields.io/badge/built%20with-C%2B%2B%20%26%20Qt%206-41CD52?style=flat-square" alt="Built with C++ and Qt 6"></a>
+  <a href="https://slint.dev"><img src="https://img.shields.io/badge/built%20with-Rust%20%26%20Slint-427BB9?style=flat-square" alt="Built with Rust and Slint"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-green?style=flat-square" alt="License: Apache 2.0"></a>
 </p>
 
-Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide its opacity down to see through it. Restart your PC and PinIt re-pins it automatically. A single-purpose alternative to installing a whole utility suite — written in native C++ with Qt, talking directly to the Windows API.
+Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide its opacity down to see through it. Restart your PC and PinIt re-pins it automatically. A single-purpose alternative to installing a whole utility suite — implemented as a single native Rust/Slint executable using the Windows API.
 
 <p align="center">
   <img src="docs/assets/pin-it-demo.gif" width="720" alt="PinIt in action: pinning a Notepad window always on top with Win+Ctrl+T, then fading its opacity to see through it">
@@ -26,6 +26,9 @@ Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide
 </p>
 
 ## Download
+
+<a href="https://slint.dev"><img src="https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png" alt="Made with Slint" height="26"></a>
+
 
 **[⬇ Download the latest release](https://github.com/snownico0722/Pin-It/releases/latest)** — Windows 10 & 11, free.
 
@@ -45,7 +48,7 @@ Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide
 - **Click-through** — let mouse clicks pass through a faded window to whatever is behind it.
 - **System tray app** — closes to the tray and stays out of your way; the tray menu lists your pinned windows. Optional start-with-Windows.
 - **Light and dark** — follows your Windows colour mode.
-- **Tiny and fast** — native C++/Qt talking directly to the Windows API. Minimal RAM, instant response.
+- **Tiny and fast** — native Rust/Slint talking directly to the Windows API. Minimal RAM, instant response.
 
 ## Keyboard Shortcuts
 
@@ -103,24 +106,23 @@ Yes — PinIt is completely free and open source under the [Apache 2.0 license](
 
 ### Prerequisites
 
-- [Qt 6.5 or newer](https://www.qt.io/download-open-source) (Widgets) with a C++17 compiler (MinGW or MSVC)
-- [CMake](https://cmake.org/) 3.21+
+- [Rust 1.88 or newer](https://rustup.rs/) with the MSVC Windows toolchain
+- Windows SDK / Visual Studio Build Tools (for executable resource compilation)
 
 ### Build
 
 ```bash
 # Clone the repository
-git clone https://github.com/Razee4315/Pin-It.git
-cd Pin-It
+git clone https://github.com/snownico0722/Pin-It.git
+cd Pin-It/rust
 
-# Configure and build (point CMAKE_PREFIX_PATH at your Qt install)
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<path-to-Qt>
-cmake --build build
+cargo test --locked
+cargo build --release --locked
 ```
 
-The executable is `build/PinIt.exe`. To run it standalone, bundle the Qt runtime with `windeployqt` (the exact flags are in `.github/workflows/build.yml`). To produce the installer, run the [Inno Setup](https://jrsoftware.org/isinfo.php) script at `installer/PinIt.iss`.
+The portable executable is `rust/target/release/pinit.exe`. CI packages it as `PinIt.exe` and builds the [Inno Setup](https://jrsoftware.org/isinfo.php) installer.
 
-> Every push is built automatically by GitHub Actions (`.github/workflows/build.yml`), which produces the installer and a portable ZIP. Pushing a `v*` tag publishes them to a GitHub Release.
+> Windows CI (`.github/workflows/build.yml`) tests and packages every change. The 3.3 release workflow (`.github/workflows/release.yml`) publishes CI-verified installer and portable ZIP assets with SHA-256 checksums.
 
 ## Why PinIt?
 
@@ -130,9 +132,9 @@ The most common solution, Microsoft PowerToys, comes bundled with dozens of othe
 
 ## Tech Stack
 
-- **Language**: C++17
-- **UI**: Qt 6 (Widgets), direct Windows API
-- **Build**: CMake + Inno Setup
+- **Language**: Rust 2024
+- **UI**: Slint 1.18 (software renderer) + Windows API
+- **Build**: Cargo + Inno Setup
 
 > Originally built with Rust + Tauri (v1.x). The previous implementation is preserved on the [`legacy-tauri`](https://github.com/Razee4315/Pin-It/tree/legacy-tauri) branch.
 
@@ -153,6 +155,8 @@ PinIt 3 bundles English and Simplified Chinese inside the single executable. The
 
 PinIt 3 单文件内置简体中文与英文。默认跟随 Windows 语言，可在「设置 → 语言」中随时切换并保存偏好。
 
-## Version 3.1.0 (fork)
+## Version 3.3.0 (fork)
 
-The 3.1.0 release adds a Simplified Chinese interface, in-app language choice, and restoration fixes for layered windows and click-through state. See [Releases](https://github.com/snownico0722/Pin-It/releases) for signed-off CI-built artifacts (note that Windows binaries are not Authenticode-signed).
+The 3.3.0 release includes a frameless, draggable titlebar, a drag-to-pin picker, native-resolution window icon selection, sharp vector header artwork, software-rendered rounded shadows, and a simplified Settings GitHub/version link. The 3.1.0 improvements to Chinese translation, language selection, and window-state restoration remain included. See [Releases](https://github.com/snownico0722/Pin-It/releases) for CI-built installer and portable assets (Windows binaries are not Authenticode-signed).
+
+Fork maintained at [@snownico0722](https://github.com/snownico0722); original project by [Saqlain Abbas / Razee4315](https://github.com/Razee4315/Pin-It).
