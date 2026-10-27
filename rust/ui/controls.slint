@@ -424,6 +424,8 @@ export component AppAvatar inherits Rectangle {
         source: icon;
         width: 18px;
         height: 18px;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
         image-rendering: smooth;
     }
     if !has-icon: Text {
