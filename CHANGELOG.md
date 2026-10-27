@@ -6,12 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-- Render the main window and modal sheet corners and hairline borders with native DPI-aware Slint rounded Rectangles, leaving only the soft penumbra in nine-slice images. This avoids jagged bitmap corners at mixed Windows display scaling without switching renderer or changing window behavior.
+## [4.0.0] — 2026-10-27
 
-### Fixed
-- Rebuilt the rounded main-window and sheet shadow assets with a **single soft neutral penumbra**, reduced opacity and a thin, low-contrast edge; removes the dark brown layered halo.
-- Expanded the frameless header's native move area across the full upper band and padding, stopping precisely at the OS resize border; clickable controls and the drag-to-pin gesture retain their own pointer handling.
+### Fixed and refined
+- Draw visible window and modal-sheet corners and outlines with native DPI-aware Slint rounded rectangles; use nine-slice images only for subtle shadows, reducing jagged corners at fractional display scaling.
+- Replace heavy stacked shadows with a single understated neutral shadow in both themes.
+- Expand the frameless header's move area without intercepting buttons, resize handles, or the drag-to-pin gesture.
+- Preserve a window's existing colour-key transparency when adjusting opacity and undo an added layered style if the opacity call fails.
+- Report incomplete native window restoration instead of claiming that unpin succeeded completely; do not block normal unpin operations.
+- Keep other waiting pins when pinning a window whose process and title match multiple saved entries; restore-attribute failures are recorded in the local log.
+
+### Compatibility
+- Existing pinned-window settings, shortcuts, and installer AppId remain compatible. No new restrictions, permissions, or confirmation steps.
+- Windows CI tests the Rust application, builds the portable ZIP and x64 installer, and generates SHA-256 checksums.
 
 ## [3.3.0] — 2026-10-27
 

@@ -1,6 +1,6 @@
 [package]
 name = "pinit"
-version = "3.3.0"
+version = "4.0.0"
 description = "Keep any window always on top on Windows"
 authors = ["Saqlain Abbas <saqlainrazee@gmail.com>"]
 license = "Apache-2.0"
