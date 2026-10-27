@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.3.0] — 2026-10-27
+
+### Fixed and refined
+- The separate About screen is replaced by a Settings footer link showing the GitHub logo and the running version (PinIt 3.3.0), opening the fork maintainer's GitHub profile.
+- The shortcut modifier requirement now shares the shortcut editor heading row instead of occupying a separate line.
+- Replaced Slint software-renderer-unsupported drop shadows and rectangular modal overlays with alpha-masked, rounded nine-slice shadows and scrims in both themes.
+
+
 - The frameless PinIt window now has a visible theme-aware hairline outline,
   fully rounded corners and a soft shadow drawn inside the translucent window;
   the content retains the same 340px width and can still be resized vertically.
@@ -195,6 +203,7 @@ Rust + Tauri implementation is archived on the `legacy-tauri` branch).
 - Version is single-sourced from CMake into the app, the installer, and the exe
   metadata.
 
+[3.3.0]: https://github.com/snownico0722/Pin-It/releases/tag/v3.3.0
 [3.0.0]: https://github.com/Razee4315/Pin-It/releases/tag/v3.0.0
 [2.2.0]: https://github.com/Razee4315/Pin-It/releases/tag/v2.2.0
 [2.1.1]: https://github.com/Razee4315/Pin-It/releases/tag/v2.1.1
