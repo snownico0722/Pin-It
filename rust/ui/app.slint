@@ -1,7 +1,7 @@
 // The PinIt window: a compact list of pinned windows with opacity sliders,
 // plus four sheets (window picker, shortcut editor, settings, about).
 
-import { ScrollView, LineEdit, ComboBox, AboutSlint } from "std-widgets.slint";
+import { ScrollView, LineEdit, ComboBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 import {
     Glyph, Button, ButtonKind, IconButton, CheckBox, Slider, KeyCombo, Card, SectionTitle, AppAvatar, AppMark, Sheet
@@ -293,7 +293,6 @@ export component AppWindow inherits Window {
     in-out property <bool> shortcuts-open;
 
     in-out property <bool> settings-open;
-    in-out property <bool> about-open;
 
     // Toast
     in-out property <string> toast-text;
@@ -323,23 +322,25 @@ export component AppWindow inherits Window {
         search.focus();
     }
 
-    // A real translucent window with an inset rounded panel. Merely setting
-    // DWMWA_WINDOW_CORNER_PREFERENCE doesn't reliably round WS_POPUP windows,
-    // and clipping an HWND region would discard its DWM corners/shadow.
-    // This draws the outline, radius and shadow consistently on Windows 10/11.
+    // The small Slint software renderer does NOT implement drop shadows or
+    // rounded child clipping. Render the frame and shadow from a rounded
+    // nine-slice image instead: its alpha survives resizes in either theme.
+    Image {
+        source: Theme.dark
+            ? @image-url("../../resources/ui-shell-dark.png", nine-slice(40))
+            : @image-url("../../resources/ui-shell-light.png", nine-slice(40));
+        width: parent.width;
+        height: parent.height;
+        image-fit: fill;
+    }
     Rectangle {
         x: 16px;
         y: 16px;
         width: parent.width - 32px;
         height: parent.height - 32px;
-        background: Theme.window;
-        border-radius: 12px;
-        border-width: 1px;
-        border-color: Theme.window-outline;
-        drop-shadow-blur: 18px;
-        drop-shadow-offset-y: 3px;
-        drop-shadow-color: Theme.window-shadow;
-        clip: true;
+        // The frame image behind us already paints the rounded card. Do not
+        // overlay an opaque rectangle or a square clip on its rounded corners.
+        background: transparent;
 
         VerticalLayout {
             padding: 12px;
@@ -606,6 +607,7 @@ export component AppWindow inherits Window {
     Sheet {
         open: root.shortcuts-open;
         title: @tr("ui" => "Shortcuts");
+        subtitle: @tr("ui" => "Each needs Win, Ctrl or Alt.");
         sheet-height: 420px;
         close => { root.shortcuts-open = false; }
 
@@ -616,11 +618,6 @@ export component AppWindow inherits Window {
                 width: editor-scroll.visible-width - 10px;
                 spacing: 9px;
                 alignment: start;
-                Text {
-                    text: @tr("ui" => "Each needs Win, Ctrl or Alt.");
-                    font-size: Theme.tiny;
-                    color: Theme.text-muted;
-                }
                 for edit[i] in shortcut-edits: VerticalLayout {
                     spacing: 4px;
                     HorizontalLayout {
@@ -730,67 +727,14 @@ export component AppWindow inherits Window {
             Rectangle { horizontal-stretch: 1; }
             Button {
                 kind: ghost;
-                icon: Icons.info;
-                text: @tr("ui" => "About PinIt");
-                clicked => {
-                    root.settings-open = false;
-                    root.about-open = true;
-                }
+                icon: Icons.github;
+                icon-size: 15px;
+                text: "PinIt " + root.version;
+                tooltip: "github.com/snownico0722";
+                clicked => { root.open-url("https://github.com/snownico0722"); }
             }
         }
     }
 
-    // About
-    Sheet {
-        open: root.about-open;
-        title: @tr("ui" => "About");
-        sheet-height: 236px;
-        close => { root.about-open = false; }
-
-        HorizontalLayout {
-            spacing: 10px;
-            Image {
-                source: @image-url("../../resources/icon-64.png");
-                width: 36px;
-                height: 36px;
-                image-rendering: smooth;
-            }
-            VerticalLayout {
-                alignment: center;
-                Text {
-                    text: "PinIt " + root.version;
-                    font-family: Theme.display-font;
-                    font-size: 13px;
-                    font-weight: 650;
-                    color: Theme.text;
-                }
-                Text {
-                    text: @tr("ui" => "by Saqlain Abbas · Apache-2.0");
-                    font-size: Theme.tiny;
-                    color: Theme.text-muted;
-                }
-            }
-        }
-        HorizontalLayout {
-            spacing: 6px;
-            alignment: start;
-            Button {
-                text: @tr("ui" => "Website");
-                clicked => { root.open-url("https://razee4315.github.io/Pin-It/"); }
-            }
-            Button {
-                text: @tr("ui" => "Source code");
-                clicked => { root.open-url("https://github.com/Razee4315/Pin-It"); }
-            }
-        }
-        // Slint's royalty-free licence asks for this credit in the About box.
-        HorizontalLayout {
-            alignment: center;
-            AboutSlint {
-                width: 130px;
-                height: 64px;
-            }
-        }
-    }
     }
 }
