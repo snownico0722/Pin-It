@@ -252,7 +252,11 @@ component ModifierChip {
 
 export component AppWindow inherits Window {
     title: "PinIt";
-    icon: @image-url("../../resources/icon-128.png");
+    // Keep the operating system window, but render its chrome in Slint.
+    // Winit retains an invisible native resize border for vertical sizing.
+    no-frame: true;
+    resize-border-width: 6px;
+    icon: @image-url("../../resources/icon-256.png");
     background: Theme.window;
     default-font-family: Theme.font;
     default-font-size: Theme.body;
@@ -294,6 +298,8 @@ export component AppWindow inherits Window {
 
     // Callbacks to Rust
     callback open-picker();
+    callback start-pin-drag();
+    in property <bool> pin-drag-active: false;
     callback pick(int);
     callback filter-changed(string);
     callback set-opacity(int, int);
@@ -319,25 +325,57 @@ export component AppWindow inherits Window {
         padding-top: 10px;
         spacing: 8px;
 
-        // Header: logo, name, shortcuts, settings
+        // Compact frameless titlebar. Only the brand portion starts a native
+        // move; the window controls and drag-to-pin target stay independent.
         HorizontalLayout {
-            spacing: 7px;
-            Image {
-                y: (parent.height - self.height) / 2;
-                source: @image-url("../../resources/icon-128.png");
-                width: 22px;
-                height: 22px;
-                image-rendering: smooth;
-            }
-            Text {
-                text: "PinIt";
-                vertical-alignment: center;
+            height: 30px;
+            spacing: 3px;
+            WindowMoveArea {
                 horizontal-stretch: 1;
-                font-family: Theme.display-font;
-                font-size: 15px;
-                font-weight: 700;
-                color: Theme.text;
-                accessible-role: text;
+                HorizontalLayout {
+                    spacing: 6px;
+                    Image {
+                        y: (parent.height - self.height) / 2;
+                        source: @image-url("../../resources/icon-48.png");
+                        width: 24px;
+                        height: 24px;
+                        image-rendering: smooth;
+                    }
+                    Text {
+                        text: "PinIt";
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                        font-family: Theme.display-font;
+                        font-size: 15px;
+                        font-weight: 700;
+                        color: Theme.text;
+                        accessible-role: text;
+                    }
+                }
+            }
+            Rectangle {
+                width: 28px;
+                height: 28px;
+                border-radius: 6px;
+                background: root.pin-drag-active ? Theme.accent-soft
+                    : drag-pin-touch.has-hover ? Theme.raised : transparent;
+                accessible-role: button;
+                accessible-label: @tr("ui" => "Drag to pin a window");
+                Glyph {
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    icon: Icons.pin;
+                    size: 17px;
+                    color: root.pin-drag-active ? Theme.accent-hover : Theme.text-muted;
+                }
+                drag-pin-touch := TouchArea {
+                    mouse-cursor: grab;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                            root.start-pin-drag();
+                        }
+                    }
+                }
             }
             IconButton {
                 width: 28px;
@@ -354,6 +392,24 @@ export component AppWindow inherits Window {
                 icon: Icons.settings;
                 tooltip: @tr("ui" => "Settings");
                 clicked => { root.settings-open = true; }
+            }
+            IconButton {
+                width: 28px;
+                height: 28px;
+                icon-size: 16px;
+                icon: Icons.minus;
+                tooltip: @tr("ui" => "Minimize");
+                clicked => { root.minimized = true; }
+            }
+            IconButton {
+                width: 28px;
+                height: 28px;
+                icon-size: 16px;
+                icon: Icons.close;
+                kind: danger-ghost;
+                tooltip: @tr("ui" => "Close");
+                // Uses the existing close-requested -> hide-to-tray logic.
+                clicked => { root.close(); }
             }
         }
 
@@ -675,9 +731,10 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             spacing: 10px;
             Image {
-                source: @image-url("../../resources/icon-128.png");
+                source: @image-url("../../resources/icon-64.png");
                 width: 36px;
                 height: 36px;
+                image-rendering: smooth;
             }
             VerticalLayout {
                 alignment: center;
