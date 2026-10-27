@@ -28,6 +28,12 @@ file properties and `installer/PinIt.iss` reads it from there. CI
 (`.github/workflows/build.yml`) runs the tests and builds the installer and
 the portable ZIP from `target/release/pinit.exe`.
 
+PinIt's frameless title area can be dragged to move the window. Drag the
+pushpin left of **Shortcuts** onto another visible application window and
+release to pin it. The same window is never unpinned by dragging the pin.
+The top-right minus minimizes PinIt and the close button hides it to the tray.
+The bottom edge remains resizable vertically.
+
 To run next to an installed PinIt without touching it, set `PINIT_DEV=1`.
 The build then uses `%LOCALAPPDATA%\PinIt-dev`, its own single-instance lock,
 and its own Run-key value. The default shortcuts will be reported as
