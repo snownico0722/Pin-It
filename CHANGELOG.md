@@ -6,6 +6,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- A frameless, draggable PinIt titlebar with explicit minimize and close-to-tray controls; a drag handle adds an external window to the pinned list without toggling existing pins.
+- The header, About panel, and window/taskbar now use appropriate source images extracted from the multi-resolution icon rather than scaling the old 128px PNG for everything.
+
 ## [3.0.0]
 
 PinIt is rewritten in Rust with a [Slint](https://slint.dev) interface. It no
