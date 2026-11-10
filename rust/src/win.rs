@@ -299,6 +299,29 @@ pub fn apply_topmost(hwnd: Hwnd) -> bool {
     }
 }
 
+/// PinIt's own HWND is changed only through this non-activating path.
+/// When focus moves to a normal app, dropping into HWND_NOTOPMOST alone
+/// would still leave PinIt above that app. Inserting behind the foreground
+/// window both drops topmost and gives the newly focused window its place.
+pub fn set_own_topmost(hwnd: Hwnd, enabled: bool) -> bool {
+    if is_topmost(hwnd) == enabled { return true; }
+    let foreground = foreground_window();
+    let after = if enabled {
+        HWND_TOPMOST
+    } else if foreground != hwnd && is_window_showing(foreground)
+        && !is_topmost(foreground) && !is_shell_class(&class_name(foreground))
+    {
+        h(foreground)
+    } else {
+        HWND_NOTOPMOST
+    };
+    unsafe {
+        SetWindowPos(h(hwnd), Some(after), 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE).is_ok()
+            && is_topmost(hwnd) == enabled
+    }
+}
+
 /// Promote PinIt within the topmost band, without stealing keyboard focus.
 pub fn raise_topmost(hwnd: Hwnd) -> bool {
     if !is_valid_window(hwnd) { return false; }
@@ -366,6 +389,24 @@ pub fn remove_topmost(hwnd: Hwnd) -> bool {
     unsafe {
         SetWindowPos(h(hwnd), Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
             .is_ok()
+    }
+}
+
+/// Exit cleanup must not wait for another process's window procedure. The
+/// caller must not interpret the immediately readable style as completion.
+pub fn remove_topmost_async(hwnd: Hwnd) -> bool {
+    unsafe {
+        SetWindowPos(h(hwnd), Some(HWND_NOTOPMOST), 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS).is_ok()
+    }
+}
+
+/// Only the bounded exit cleanup uses this probe. Ordinary commands run on
+/// the dedicated worker and report their actual native result.
+pub fn responds_to_messages(hwnd: Hwnd, timeout_ms: u32) -> bool {
+    unsafe {
+        SendMessageTimeoutW(h(hwnd), WM_NULL, WPARAM(0), LPARAM(0),
+            SMTO_ABORTIFHUNG | SMTO_BLOCK, timeout_ms, None).0 != 0
     }
 }
 

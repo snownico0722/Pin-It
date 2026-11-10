@@ -35,6 +35,7 @@ pub enum Event {
     TrayMenu { x: i32, y: i32 },
     ShowRequested,
     ForegroundChanged,
+    PinsReady,
     SessionEnding,
     SessionEndCancelled,
     SessionEnded,
@@ -81,6 +82,11 @@ fn emit(event: Event, now: bool) {
     }
 }
 
+/// Worker threads notify through Slint; the handler still runs on the UI thread.
+pub fn pins_ready() {
+    emit(Event::PinsReady, false);
+}
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     unsafe {
         match msg {
@@ -96,7 +102,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                     _ => {}
                 }
             }
-            WM_SHOW_REQUEST => emit(Event::ShowRequested, false),
+            WM_SHOW_REQUEST if wp.0 == 0 && lp.0 == 0 => emit(Event::ShowRequested, false),
             WM_QUERYENDSESSION => {
                 emit(Event::SessionEnding, true);
                 return LRESULT(1);
@@ -130,12 +136,28 @@ pub fn hand_off_to_running_instance() -> bool {
             std::mem::forget(mutex);
             return false;
         }
-        if let Ok(other) = FindWindowW(&class_name(), PCWSTR::null()) {
-            let mut pid = 0;
-            GetWindowThreadProcessId(other, Some(&mut pid));
-            let _ = AllowSetForegroundWindow(pid);
-            let _ = PostMessageW(Some(other), WM_SHOW_REQUEST, WPARAM(0), LPARAM(0));
+        // An elevated instance can deny access to its mutex. Still contact its
+        // helper: it explicitly allows the parameterless show request below.
+        let Ok(other) = FindWindowW(&class_name(), PCWSTR::null()) else {
+            match mutex {
+                Err(e) => crate::logfile::warning!("Could not acquire the single-instance lock or find PinIt's helper: {e}"),
+                Ok(_) => crate::logfile::warning!("Another PinIt instance exists, but its helper window was not found"),
+            }
+            return true;
+        };
+        let mut pid = 0;
+        GetWindowThreadProcessId(other, Some(&mut pid));
+        if pid != 0 {
+            if let Err(e) = AllowSetForegroundWindow(pid) {
+                crate::logfile::warning!("Could not grant the running PinIt foreground access: {e}");
+            }
         }
+        match PostMessageW(Some(other), WM_SHOW_REQUEST, WPARAM(0), LPARAM(0)) {
+            Ok(()) => crate::logfile::info!("Requested the running PinIt instance to show"),
+            Err(e) => crate::logfile::warning!("Could not send the show request to the running PinIt instance: {e}"),
+        }
+        // A failed hand-off must not create a second instance with the same
+        // tray, shortcuts and settings file.
         true
     }
 }
@@ -167,6 +189,11 @@ pub fn create(handler: impl Fn(Event) + 'static) -> Hwnd {
             None,
         )
         .expect("could not create PinIt's helper window");
+        // Permit only this parameterless wake request across UIPI, so a normal
+        // second launch can show an instance running as administrator.
+        if let Err(e) = ChangeWindowMessageFilterEx(hwnd, WM_SHOW_REQUEST, MSGFLT_ALLOW, None) {
+            crate::logfile::warning!("Could not enable wake requests from non-elevated PinIt instances: {e}");
+        }
         HOST.with(|h| *h.borrow_mut() = hwnd);
         TASKBAR_CREATED.with(|t| *t.borrow_mut() = RegisterWindowMessageW(w!("TaskbarCreated")));
         hwnd.0 as Hwnd

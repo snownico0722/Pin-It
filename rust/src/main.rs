@@ -12,6 +12,7 @@ mod host;
 mod i18n;
 mod icon_resize;
 mod logfile;
+mod pin_worker;
 mod pins;
 mod shortcuts;
 mod store;
@@ -25,7 +26,10 @@ use std::time::Duration;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use slint::{CloseRequestResponse, ComponentHandle, Image, Model, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, VecModel};
 
-use crate::pins::Pins;
+use crate::pin_worker::{
+    Command as PinCommand, Completion as PinCompletion, Outcome as PinOutcome,
+    PinWorker, Snapshot as PinSnapshot,
+};
 use crate::win::Hwnd;
 
 slint::include_modules!();
@@ -83,7 +87,8 @@ struct BrandDrag {
 struct App {
     me: std::rc::Weak<RefCell<App>>,
     ui: slint::Weak<AppWindow>,
-    pins: Pins,
+    pins: PinSnapshot,
+    pin_worker: PinWorker,
     state: store::State,
     rows: Vec<RowKey>,
     row_model: Rc<VecModel<PinRow>>,
@@ -94,6 +99,7 @@ struct App {
     edit_model: Rc<VecModel<ShortcutEdit>>,
     hotkey_problems: Vec<String>,
     visible: bool,
+    quitting: bool,
     reenforce_timer: slint::Timer,
     aggressive_timer: slint::Timer,
     save_timer: slint::Timer,
@@ -109,7 +115,6 @@ fn main() {
     logfile::init();
     logfile::info!("PinIt {} starting", env!("CARGO_PKG_VERSION"));
     if host::hand_off_to_running_instance() {
-        logfile::info!("Another instance is running; asked it to show");
         return;
     }
     let start_hidden = std::env::args().any(|a| a == "--minimized");
@@ -117,10 +122,12 @@ fn main() {
     let ui = AppWindow::new().expect("could not create the PinIt window");
     let state = store::load();
     let _ = slint::select_bundled_translation(i18n::locale(&state.settings.ui_language));
+    let pin_worker = PinWorker::new(state.pins.clone(), host::pins_ready);
     let app: Shared = Rc::new_cyclic(|me| RefCell::new(App {
         me: me.clone(),
         ui: ui.as_weak(),
-        pins: Pins::default(),
+        pins: pin_worker.snapshot(),
+        pin_worker,
         state,
         rows: Vec::new(),
         row_model: Rc::new(VecModel::default()),
@@ -131,6 +138,7 @@ fn main() {
         edit_model: Rc::new(VecModel::default()),
         hotkey_problems: Vec::new(),
         visible: false,
+        quitting: false,
         reenforce_timer: slint::Timer::default(),
         aggressive_timer: slint::Timer::default(),
         save_timer: slint::Timer::default(),
@@ -173,12 +181,9 @@ fn main() {
     }
     app.borrow_mut().hotkey_problems = failed;
 
-    // Pins from last time: open windows are re-pinned now, the rest wait.
+    // The worker restores saved windows; show its current snapshot meanwhile.
     {
         let mut a = app.borrow_mut();
-        let saved = std::mem::take(&mut a.state.pins);
-        a.pins.restore(saved);
-        a.save_now();
         a.pins_changed();
         a.refresh_shortcut_views();
         a.refresh_status();
@@ -246,29 +251,17 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
 
     let a = app.clone();
     ui.on_set_opacity(move |i, v| {
-        let mut app = a.borrow_mut();
+        let app = a.borrow();
         if let Some(RowKey::Live(hwnd)) = app.rows.get(i as usize).copied() {
-            if app.pins.set_opacity(hwnd, v).is_ok() {
-                app.update_rows_in_place();
-                app.save_soon();
-            }
+            app.pin_worker.submit(PinCommand::SetOpacity { hwnd, percent: v });
         }
     });
 
     let a = app.clone();
     ui.on_toggle_click_through(move |i| {
-        let mut app = a.borrow_mut();
+        let app = a.borrow();
         if let Some(RowKey::Live(hwnd)) = app.rows.get(i as usize).copied() {
-            let on = app.pins.pinned().iter().find(|p| p.hwnd == hwnd).is_some_and(|p| p.click_through);
-            match app.pins.set_click_through(hwnd, !on) {
-                Ok(()) => {
-                    app.update_rows_in_place();
-                    app.save_soon();
-                    let toast = if on { "Clicks reach this window again." } else { "Clicks now pass through this window." };
-                    app.toast(app.t(toast));
-                }
-                Err(e) => app.toast(&e.message(app.zh())),
-            }
+            app.pin_worker.submit(PinCommand::ToggleClickThrough(hwnd));
         }
     });
 
@@ -278,9 +271,9 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
         match app.rows.get(i as usize).copied() {
             Some(RowKey::Live(hwnd)) => app.toggle(hwnd, false),
             Some(RowKey::Waiting(p)) => {
-                app.pins.toggle_pending(p);
-                app.save_now();
-                app.pins_changed();
+                if let Some(saved) = app.pins.pending().get(p) {
+                    app.pin_worker.submit(PinCommand::ToggleWaiting(saved.clone()));
+                }
             }
             None => {}
         }
@@ -288,22 +281,16 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
 
     let a = app.clone();
     ui.on_remove_pin(move |i| {
-        let mut app = a.borrow_mut();
+        let app = a.borrow();
         match app.rows.get(i as usize).copied() {
             Some(RowKey::Live(hwnd)) => {
                 flash::hide();
-                let restored = app.pins.unpin(hwnd).is_none_or(|(_, restored)| restored);
-                app.save_now();
-                app.pins_changed();
-                if !restored {
-                    let message = pins::PinError::RestoreFailed.message(app.zh());
-                    app.message(&message, true);
-                }
+                app.pin_worker.submit(PinCommand::Remove(hwnd));
             }
             Some(RowKey::Waiting(p)) => {
-                app.pins.forget_pending(p);
-                app.save_now();
-                app.pins_changed();
+                if let Some(saved) = app.pins.pending().get(p) {
+                    app.pin_worker.submit(PinCommand::RemoveWaiting(saved.clone()));
+                }
             }
             None => {}
         }
@@ -409,6 +396,7 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
 
 fn on_host_event(app: &Shared, event: host::Event) {
     use host::Event::*;
+    if app.borrow().quitting && !matches!(event, PinsReady) { return; }
     match event {
         Hotkey(HOTKEY_PIN) => {
             let fg = win::foreground_window();
@@ -416,18 +404,9 @@ fn on_host_event(app: &Shared, event: host::Event) {
         }
         Hotkey(id @ (HOTKEY_OPACITY_UP | HOTKEY_OPACITY_DOWN)) => {
             let delta = if id == HOTKEY_OPACITY_UP { OPACITY_STEP } else { -OPACITY_STEP };
-            let mut a = app.borrow_mut();
+            let a = app.borrow();
             let fg = win::foreground_window();
-            match a.pins.adjust_opacity(fg, delta) {
-                Ok(_) => {
-                    a.update_rows_in_place();
-                    a.save_soon();
-                }
-                Err(e) => {
-                    let message = e.message(a.zh());
-                    a.message(&message, true);
-                },
-            }
+            a.pin_worker.submit(PinCommand::AdjustOpacity { hwnd: fg, delta });
         }
         Hotkey(HOTKEY_WINDOW) | TrayActivate => {
             let mut a = app.borrow_mut();
@@ -445,19 +424,15 @@ fn on_host_event(app: &Shared, event: host::Event) {
             a.reenforce();
             a.raise_absolute_topmost();
         },
+        PinsReady => app.borrow_mut().complete_pin_commands(),
         SessionEnding => {
             let mut a = app.borrow_mut();
-            a.pins.set_session_ending(true);
+            a.pin_worker.set_session_ending(true);
+            a.pins = a.pin_worker.snapshot();
             a.save_now();
         }
-        SessionEndCancelled => app.borrow_mut().pins.set_session_ending(false),
-        SessionEnded => {
-            let mut a = app.borrow_mut();
-            logfile::info!("Session ending: restored {} window(s), keeping pins for next login", a.pins.pinned().len());
-            a.pins.release_all();
-            a.save_now();
-            host::remove_tray();
-        }
+        SessionEndCancelled => app.borrow().pin_worker.set_session_ending(false),
+        SessionEnded => app.borrow_mut().start_shutdown(true),
     }
 }
 
@@ -595,9 +570,6 @@ impl App {
         let Some(ui) = self.ui() else { return };
         // Raise before requesting focus: another topmost fullscreen window
         // would otherwise keep PinIt covered even after activation.
-        if self.state.settings.pin_when_focused {
-            ui.set_window_focused(true);
-        }
         let _ = ui.show();
         self.visible = true;
         self.style_title_bar();
@@ -605,7 +577,7 @@ impl App {
             // A manual pin or compact mode must raise on explicit wake even if
             // focus-based topmost is disabled and foreground activation fails.
             if self.state.settings.pin_when_focused || ui.get_self_pinned() || ui.get_compact() {
-                win::apply_topmost(hwnd);
+                win::raise_topmost(hwnd);
             }
             win::force_foreground(hwnd);
         }
@@ -618,7 +590,6 @@ impl App {
         flash::hide();
         self.visible = false;
         if let Some(ui) = self.ui() {
-            ui.set_window_focused(false);
             let _ = ui.hide();
         }
         self.sync_own_topmost();
@@ -628,36 +599,45 @@ impl App {
     /// This releases managed windows, forgets pins, removes the tray icon,
     /// and exits rather than leaving an invisible process running.
     fn quit(&mut self) {
-        logfile::info!("Restored and cleared {} managed window(s) on quit", self.pins.pinned().len());
+        self.start_shutdown(false);
+    }
+
+    fn start_shutdown(&mut self, keep_pins: bool) {
+        if self.quitting { return; }
+        self.quitting = true;
+        logfile::info!("Releasing {} managed window(s) on exit", self.pins.pinned().len());
         self.cancel_drag();
         self.visible = false;
+        if let Some(ui) = self.ui() {
+            let _ = ui.hide();
+        }
         self.aggressive_timer.stop();
         self.reenforce_timer.stop();
-        self.pins.release_all();
+        host::watch_foreground(false);
+        self.pins = if keep_pins { self.pin_worker.snapshot() } else { PinSnapshot::default() };
         self.save_now();
         host::remove_tray();
         flash::hide();
-        let _ = slint::quit_event_loop();
+        self.pin_worker.shutdown();
+        // A different application's hung window must not prevent Quit. Normal
+        // cleanup finishes immediately via PinsReady; this is its upper bound.
+        slint::Timer::single_shot(Duration::from_millis(900), || {
+            let _ = slint::quit_event_loop();
+        });
     }
 
-    // Apply the same combined state as Slint's always-on-top binding.
-    // Win32 updates immediately; Slint retains it across style/size changes.
+    // Keep all self-pinning on the native, non-activating path. In particular,
+    // loss of focus must not change Slint/Winit's window-level property.
     fn sync_own_topmost(&mut self) -> bool {
         let Some(ui) = self.ui() else { return false };
         let hwnd = self.main_hwnd();
-        let focused = self.visible && hwnd.is_some_and(|h| h == win::foreground_window());
-        ui.set_window_focused(focused);
-        let wanted = own_topmost_enabled(
+        let showing = self.visible && hwnd.is_some_and(win::is_window_showing);
+        let focused = showing && hwnd == Some(win::foreground_window());
+        let wanted = showing && own_topmost_enabled(
             ui.get_self_pinned(), ui.get_compact(),
             self.state.settings.pin_when_focused, focused,
         );
-        let applied = match hwnd {
-            Some(h) if win::is_topmost(h) != wanted => {
-                let ok = if wanted { win::apply_topmost(h) } else { win::remove_topmost(h) };
-                ok && win::is_topmost(h) == wanted
-            }
-            _ => true,
-        };
+        let applied = hwnd.is_none_or(|h| win::set_own_topmost(h, wanted));
         self.update_watchers();
         applied
     }
@@ -729,9 +709,11 @@ impl App {
         let weak = self.me.clone();
         slint::Timer::single_shot(Duration::ZERO, move || {
             let Some(app) = weak.upgrade() else { return };
-            let a = app.borrow();
+            let mut a = app.borrow_mut();
             if let Some(ui) = a.ui() { ui.window().set_size(size); }
             if let Some(hwnd) = a.main_hwnd() { win::fit_to_work_area(hwnd); }
+            a.sync_own_topmost();
+            a.raise_absolute_topmost();
         });
     }
 
@@ -758,34 +740,12 @@ impl App {
     /// Pin or unpin `hwnd`. `from_hotkey`: the user is looking at that window,
     /// not at PinIt.
     fn toggle(&mut self, hwnd: Hwnd, from_hotkey: bool) {
+        if self.quitting { return; }
         if Some(hwnd) == self.main_hwnd() {
             self.toggle_self_pin();
             return;
         }
-        let title = win::window_title(hwnd);
-        match self.pins.toggle(hwnd) {
-            Ok(pinned) => {
-                flash::show(hwnd, if pinned { flash::Kind::Pinned } else { flash::Kind::Unpinned });
-                if pinned && self.state.settings.enable_sound {
-                    win::play_pin_sound();
-                }
-                let verb = if pinned { self.t("Pinned") } else { self.t("Unpinned") };
-                let text = if title.is_empty() { verb.to_string() } else { format!("{verb}: {title}") };
-                if from_hotkey {
-                    if self.state.settings.show_notifications {
-                        host::notify("PinIt", &text);
-                    }
-                } else {
-                    self.toast(&text);
-                }
-                self.save_now();
-                self.pins_changed();
-            }
-            Err(e) => {
-                let message = e.message(self.zh());
-                self.message(&message, true);
-            },
-        }
+        self.pin_worker.submit(PinCommand::Toggle { hwnd, from_hotkey });
     }
 
     /// Begin a native pointer drag. The mouse can leave the Slint window,
@@ -890,7 +850,7 @@ impl App {
             if let Some(hwnd) = target {
                 // Drag-to-pin adds a pin; it never toggles an existing pin off.
                 if !self.pins.is_pinned(hwnd) {
-                    self.toggle(hwnd, false);
+                    self.pin_worker.submit(PinCommand::Pin(hwnd));
                 }
             }
         }
@@ -914,32 +874,99 @@ impl App {
 
     fn unpin_all(&mut self) {
         flash::hide();
-        let (n, failures) = self.pins.unpin_all();
-        self.save_now();
-        self.pins_changed();
-        if failures != 0 {
-            self.message(&pins::PinError::UnpinFailed.message(self.zh()), true);
-        } else {
-            self.toast(&match n {
-                0 => self.t("Nothing to unpin.").to_string(),
-                1 => if self.zh() { "已取消置顶 1 个窗口。".to_string() } else { "Unpinned 1 window.".to_string() },
-                n => if self.zh() { format!("已取消置顶 {n} 个窗口。") } else { format!("Unpinned {n} windows.") },
-            });
-        }
+        self.pin_worker.submit(PinCommand::UnpinAll);
     }
 
     fn reenforce(&mut self) {
+        if self.quitting { return; }
         self.sync_own_topmost();
-        let r = self.pins.reenforce();
-        for &hwnd in &r.restored {
-            flash::show(hwnd, flash::Kind::Pinned);
+        if self.pins.is_active() {
+            self.pin_worker.submit(PinCommand::Reenforce);
         }
-        if r.list_changed {
-            self.save_now();
-            self.pins_changed();
-        } else if r.titles_changed {
-            self.save_soon();
-            self.update_rows_in_place();
+    }
+
+    fn complete_pin_commands(&mut self) {
+        while let Some(completed) = self.pin_worker.next_result() {
+            let (snapshot, outcome) = match completed {
+                PinCompletion::ShutdownFinished => {
+                    let _ = slint::quit_event_loop();
+                    return;
+                }
+                PinCompletion::Updated { snapshot, outcome } => (snapshot, outcome),
+            };
+            if self.quitting { continue; }
+            self.pins = snapshot;
+            match outcome {
+                PinOutcome::Restored | PinOutcome::WaitingChanged => {
+                    self.save_now();
+                    self.pins_changed();
+                }
+                PinOutcome::Toggled { hwnd, title, from_hotkey, result } => match result {
+                    Ok(pinned) => {
+                        flash::show(hwnd, if pinned { flash::Kind::Pinned } else { flash::Kind::Unpinned });
+                        if pinned && self.state.settings.enable_sound { win::play_pin_sound(); }
+                        let verb = if pinned { self.t("Pinned") } else { self.t("Unpinned") };
+                        let text = if title.is_empty() { verb.to_string() } else { format!("{verb}: {title}") };
+                        if from_hotkey {
+                            if self.state.settings.show_notifications { host::notify("PinIt", &text); }
+                        } else {
+                            self.toast(&text);
+                        }
+                        self.save_now();
+                        self.pins_changed();
+                    }
+                    Err(e) => self.message(&e.message(self.zh()), true),
+                },
+                PinOutcome::Opacity { from_hotkey, result } => match result {
+                    Ok(_) => {
+                        self.update_rows_in_place();
+                        self.save_soon();
+                    }
+                    Err(e) if from_hotkey => self.message(&e.message(self.zh()), true),
+                    Err(e) => self.toast(&e.message(self.zh())),
+                },
+                PinOutcome::ClickThrough(result) => {
+                    // Adding click-through may have changed opacity first,
+                    // even when the final style change is refused.
+                    self.update_rows_in_place();
+                    self.save_soon();
+                    match result {
+                        Ok(on) => self.toast(self.t(if on { "Clicks now pass through this window." }
+                            else { "Clicks reach this window again." })),
+                        Err(e) => self.toast(&e.message(self.zh())),
+                    }
+                }
+                PinOutcome::Removed { restored } => {
+                    self.save_now();
+                    self.pins_changed();
+                    if !restored {
+                        self.message(&pins::PinError::RestoreFailed.message(self.zh()), true);
+                    }
+                }
+                PinOutcome::UnpinnedAll { count, failures } => {
+                    self.save_now();
+                    self.pins_changed();
+                    if failures != 0 {
+                        self.message(&pins::PinError::UnpinFailed.message(self.zh()), true);
+                    } else {
+                        self.toast(&match count {
+                            0 => self.t("Nothing to unpin.").to_string(),
+                            1 => if self.zh() { "已取消置顶 1 个窗口。".into() } else { "Unpinned 1 window.".into() },
+                            n => if self.zh() { format!("已取消置顶 {n} 个窗口。") } else { format!("Unpinned {n} windows.") },
+                        });
+                    }
+                }
+                PinOutcome::Reenforced(r) => {
+                    for hwnd in r.restored { flash::show(hwnd, flash::Kind::Pinned); }
+                    if r.list_changed {
+                        self.save_now();
+                        self.pins_changed();
+                    } else if r.titles_changed {
+                        self.save_soon();
+                        self.update_rows_in_place();
+                    }
+                }
+            }
         }
     }
 
@@ -985,6 +1012,7 @@ impl App {
     }
 
     fn update_watchers(&self) {
+        if self.quitting { return; }
         let active = self.pins.is_active()
             || self.ui().is_some_and(|ui| ui.get_self_pinned() || ui.get_compact())
             || (self.visible && self.state.settings.pin_when_focused);
