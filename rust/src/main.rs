@@ -429,24 +429,15 @@ fn on_host_event(app: &Shared, event: host::Event) {
                 },
             }
         }
-        Hotkey(HOTKEY_WINDOW) => {
+        Hotkey(HOTKEY_WINDOW) | TrayActivate => {
             let mut a = app.borrow_mut();
-            let ours = a.main_hwnd();
-            if a.visible && ours.is_some() && ours == Some(win::foreground_window()) {
+            if a.is_window_in_front() {
                 a.hide_window();
             } else {
                 a.show_window();
             }
         }
         Hotkey(_) => {}
-        TrayActivate => {
-            let mut a = app.borrow_mut();
-            if a.visible {
-                a.hide_window();
-            } else {
-                a.show_window();
-            }
-        }
         TrayMenu { x, y } => tray_menu(app, x, y),
         ShowRequested => app.borrow_mut().show_window(),
         ForegroundChanged => {
@@ -592,6 +583,14 @@ impl App {
         win::style_title_bar(hwnd, ui.get_dark(), rgb);
     }
 
+    /// A visible background or minimized window must be *shown*, not hidden,
+    /// when the user activates PinIt from its tray icon or the hotkey.
+    fn is_window_in_front(&self) -> bool {
+        self.visible && self.main_hwnd().is_some_and(|hwnd| {
+            win::is_window_showing(hwnd) && hwnd == win::foreground_window()
+        })
+    }
+
     fn show_window(&mut self) {
         let Some(ui) = self.ui() else { return };
         // Raise before requesting focus: another topmost fullscreen window
@@ -603,12 +602,14 @@ impl App {
         self.visible = true;
         self.style_title_bar();
         if let Some(hwnd) = self.main_hwnd() {
-            if self.state.settings.pin_when_focused {
+            // A manual pin or compact mode must raise on explicit wake even if
+            // focus-based topmost is disabled and foreground activation fails.
+            if self.state.settings.pin_when_focused || ui.get_self_pinned() || ui.get_compact() {
                 win::apply_topmost(hwnd);
             }
             win::force_foreground(hwnd);
         }
-        // Discard the optimistic raise if Windows refused activation.
+        // Discard the optimistic focus raise if Windows refused activation.
         self.sync_own_topmost();
     }
 
