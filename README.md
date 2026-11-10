@@ -46,7 +46,8 @@ Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide
 - **Pins survive restarts** — PinIt remembers what you pinned (and its opacity). After a restart it pins each window again as soon as that window is open.
 - **Windows 11 topmost re-enforcement** — Win11's compositor sometimes strips the always-on-top flag; PinIt re-applies it automatically.
 - **Click-through** — let mouse clicks pass through a faded window to whatever is behind it.
-- **Mini window and self pinning** — click the PinIt logo/name to collapse to a rounded, always-on-top mini window; drag it to move or click to restore. The titlebar pin toggles PinIt's own always-on-top state.
+- **Mini window and self pinning** — click the PinIt logo/name to collapse to a rounded, always-on-top mini window; drag it to move or click to restore the previous size and manual pin state. The titlebar pin toggles PinIt's long-term always-on-top preference.
+- **Focus-aware self pinning** — PinIt temporarily stays on top whenever it is focused, by default; losing focus restores the long-term preference. This can be disabled in Settings.
 - **Managed window switches** — toggle a window's pin without removing it from the list. The row's × unpins and removes it; **Unpin all** keeps the entries and switches every pin off. Active and inactive states are remembered across restarts.
 - **Pick or drag to pin** — the split main action opens the window picker on the left and lets you drag onto a target window on the right.
 - **System tray app** — closes to the tray and stays out of your way; the tray menu lists your pinned windows. Optional start-with-Windows.

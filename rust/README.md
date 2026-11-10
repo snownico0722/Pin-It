@@ -29,10 +29,13 @@ file properties and `installer/PinIt.iss` reads it from there. CI
 the portable ZIP from `target/release/pinit.exe`.
 
 PinIt's frameless title area can be dragged to move the window. Click the
-top-left logo/name to keep PinIt on top and collapse it to a rounded mini
-window; drag the mini window to move it, or click it to restore the full
-window at its previous size. Restoring keeps PinIt on top until you turn off
-the titlebar pin. That pin controls **PinIt itself**, with distinct on/off icons.
+top-left logo/name to collapse PinIt to an always-on-top rounded mini window;
+drag it to move or click to restore the previous size and **previous manual pin
+choice**. The titlebar pin controls PinIt's long-term topmost preference, with
+distinct on/off icons. By default, PinIt also temporarily stays on top while
+focused (Settings → **Always on top while PinIt has focus**), then returns to
+the manual preference when focus leaves. A hotkey/tray wake raises PinIt before
+requesting focus so it can appear above another topmost window.
 
 The main action is split in two: **Pin a window…** opens the existing picker;
 **Drag to pin** can be dragged onto another visible application window and

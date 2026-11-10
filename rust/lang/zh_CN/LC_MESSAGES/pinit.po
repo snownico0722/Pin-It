@@ -8,6 +8,10 @@ msgid "· in use by another app"
 msgstr "· 已被其他程序占用"
 
 msgctxt "ui"
+msgid "Always on top while PinIt has focus"
+msgstr "获得焦点时自动置顶"
+
+msgctxt "ui"
 msgid "About"
 msgstr "关于"
 
