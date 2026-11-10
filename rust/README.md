@@ -1,4 +1,4 @@
-# PinIt in Rust (Slint) — release 4.0.0
+# PinIt in Rust (Slint) — release 5.0.0
 
 A pure-Rust port of PinIt: no Qt, no webview, no JavaScript. The UI is
 [Slint](https://slint.dev) and every Windows call goes through the
@@ -63,7 +63,7 @@ default; Settings → **Exit PinIt instead of hiding to tray** changes that butt
 managed windows are restored and forgotten, and the tray icon is removed.
 Click-to-compact is limited to the left logo/name; the middle of the titlebar
 still drags the window without toggling compact mode.
-The bottom edge remains resizable vertically. The 4.0 UI draws rounded
+The bottom edge remains resizable vertically. The 5.0 UI draws rounded
 window and dialog surfaces with Slint's native DPI-aware geometry and keeps
 nine-slice assets for the subtle shadows and dimmed backdrop. This avoids
 relying on unsupported software-renderer shadow and rounded clipping
