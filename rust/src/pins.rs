@@ -1,4 +1,4 @@
-//! pins — which windows are pinned, and keeping them that way.
+//! pins — managed windows, their always-on-top state, and keeping it applied.
 //!
 //! Pure bookkeeping over `win`: no UI, no timers. The app calls `reenforce`
 //! on a timer and when the foreground window changes, and saves whatever
@@ -12,13 +12,14 @@ pub struct Pinned {
     pub hwnd: Hwnd,
     pub title: String,
     pub process: String,
+    pub enabled: bool,
     pub opacity: i32, // percent
     pub click_through: bool,
     was_layered: bool,       // had WS_EX_LAYERED before PinIt touched it
     original_layered: Option<win::LayeredAttributes>,
     was_topmost: bool,       // was already always-on-top (Task Manager, players)
     was_click_through: bool, // already let clicks through
-    opacity_changed: bool,   // PinIt changed its opacity, so undo that on unpin
+    opacity_changed: bool,   // PinIt changed its opacity, so undo that on removal
 }
 
 #[derive(Debug, PartialEq)]
@@ -29,6 +30,7 @@ pub enum PinError {
     Blocked(String),
     NotPinned,
     UnsupportedTransparency,
+    UnpinFailed,
     RestoreFailed,
 }
 
@@ -43,9 +45,10 @@ impl PinError {
                     let app = if app.is_empty() { "该窗口" } else { app };
                     format!("无法置顶 {app}，它可能以管理员身份运行。")
                 }
-                PinError::NotPinned => "请先置顶窗口，再调整不透明度。".into(),
+                PinError::NotPinned => "请先将窗口加入管理。".into(),
                 PinError::UnsupportedTransparency => "目标窗口使用特殊透明模式，无法安全恢复原始状态。".into(),
-                PinError::RestoreFailed => "取消置顶时未能完全恢复窗口状态，请检查目标窗口。".into(),
+                PinError::UnpinFailed => "无法取消窗口置顶，请检查目标窗口。".into(),
+                PinError::RestoreFailed => "已从管理列表移除，但未能完全恢复目标窗口状态。".into(),
             };
         }
         match self {
@@ -56,9 +59,10 @@ impl PinError {
                 let app = if app.is_empty() { "this window" } else { app };
                 format!("Can't pin {app}. It may be running as administrator.")
             }
-            PinError::NotPinned => "Pin this window first to change its opacity.".into(),
+            PinError::NotPinned => "Add this window to PinIt first.".into(),
             PinError::UnsupportedTransparency => "This window uses custom layered transparency that cannot be safely restored.".into(),
-            PinError::RestoreFailed => "Unpinned, but could not fully restore the window's original state.".into(),
+            PinError::UnpinFailed => "Could not turn off always-on-top for this window.".into(),
+            PinError::RestoreFailed => "Removed from PinIt, but could not fully restore the window's original state.".into(),
         }
     }
 }
@@ -78,6 +82,7 @@ pub struct Pins {
 }
 
 impl Pins {
+    /// All managed live windows, including entries with always-on-top turned off.
     pub fn pinned(&self) -> &[Pinned] {
         &self.pinned
     }
@@ -87,6 +92,10 @@ impl Pins {
     }
 
     pub fn is_pinned(&self, hwnd: Hwnd) -> bool {
+        self.pinned.iter().any(|p| p.hwnd == hwnd && p.enabled)
+    }
+
+    pub fn is_managed(&self, hwnd: Hwnd) -> bool {
         self.pinned.iter().any(|p| p.hwnd == hwnd)
     }
 
@@ -102,6 +111,13 @@ impl Pins {
         if self.is_pinned(hwnd) {
             return Ok(());
         }
+        if self.is_managed(hwnd) {
+            return self.set_enabled(hwnd, true);
+        }
+        self.manage(hwnd, true)
+    }
+
+    fn manage(&mut self, hwnd: Hwnd, enabled: bool) -> Result<(), PinError> {
         if !win::is_valid_window(hwnd) {
             return Err(PinError::Gone);
         }
@@ -113,19 +129,15 @@ impl Pins {
         let was_topmost = win::is_topmost(hwnd);
         let was_layered = win::is_layered(hwnd);
         let original_layered = win::layered_attributes(hwnd);
-        // UIPI silently ignores SetWindowPos on elevated windows; checking that
-        // the style took is how we notice.
-        if !win::apply_topmost(hwnd) || !win::is_topmost(hwnd) {
-            crate::logfile::warning!("Pin failed for {process} (likely elevated/UIPI)");
-            return Err(PinError::Blocked(process));
-        }
-        crate::logfile::info!("Pinned a window of {process}");
+        Self::apply_enabled(hwnd, enabled, &process)?;
+        crate::logfile::info!("Managing a window of {process} (pinned: {enabled})");
         let was_click_through = win::is_click_through(hwnd);
         store::consume_one_matching(&mut self.pending, &process, &title);
         self.pinned.push(Pinned {
             hwnd,
             title,
             process,
+            enabled,
             opacity: 100,
             click_through: was_click_through,
             was_layered,
@@ -137,10 +149,31 @@ impl Pins {
         Ok(())
     }
 
+    fn apply_enabled(hwnd: Hwnd, enabled: bool, process: &str) -> Result<(), PinError> {
+        if !win::is_valid_window(hwnd) {
+            return Err(PinError::Gone);
+        }
+        // UIPI can silently ignore SetWindowPos; confirm the requested style.
+        let applied = if enabled { win::apply_topmost(hwnd) } else { win::remove_topmost(hwnd) };
+        if !applied || win::is_topmost(hwnd) != enabled {
+            crate::logfile::warning!("Could not set always-on-top to {enabled} for {process}");
+            return Err(if enabled { PinError::Blocked(process.into()) } else { PinError::UnpinFailed });
+        }
+        Ok(())
+    }
+
+    /// Toggle only always-on-top. Opacity and click-through stay under management.
+    pub fn set_enabled(&mut self, hwnd: Hwnd, enabled: bool) -> Result<(), PinError> {
+        let p = self.find(hwnd).ok_or(PinError::NotPinned)?;
+        Self::apply_enabled(hwnd, enabled, &p.process)?;
+        p.enabled = enabled;
+        Ok(())
+    }
+
     /// Attempt every restoration even when an earlier Win32 operation failed.
     /// The UI still allows removing the pin; it reports partial failure instead
     /// of incorrectly claiming that the foreign window was fully restored.
-    fn release(p: &Pinned) -> bool {
+    fn release(p: &Pinned, force_unpin: bool) -> bool {
         if !win::is_valid_window(p.hwnd) {
             return true; // closed windows need no restoration
         }
@@ -151,7 +184,7 @@ impl Pins {
         if p.opacity_changed {
             ok &= win::restore_opacity(p.hwnd, p.was_layered, p.original_layered.as_ref());
         }
-        if !p.was_topmost {
+        if force_unpin || !p.was_topmost {
             ok &= win::remove_topmost(p.hwnd) && !win::is_topmost(p.hwnd);
         }
         if !ok {
@@ -160,24 +193,32 @@ impl Pins {
         ok
     }
 
+    /// Remove the managed entry, turn off always-on-top, and restore other styles.
     pub fn unpin(&mut self, hwnd: Hwnd) -> Option<(Pinned, bool)> {
         let i = self.pinned.iter().position(|p| p.hwnd == hwnd)?;
         let p = self.pinned.remove(i);
-        let restored = Self::release(&p);
+        let restored = Self::release(&p, true);
         Some((p, restored))
     }
 
-    /// Unpin every window and stop waiting for the pending ones.
-    /// Returns how many windows were unpinned and how many failed restoration.
+    /// Turn off always-on-top for every entry, keeping the management list.
+    /// Waiting entries also stay in the list and will be restored unpinned.
+    /// Returns how many entries changed and how many native changes failed.
     pub fn unpin_all(&mut self) -> (usize, usize) {
-        let n = self.pinned.len();
+        let mut n = 0;
         let mut failures = 0;
-        for p in self.pinned.drain(..) {
-            if !Self::release(&p) {
+        for p in self.pinned.iter_mut().filter(|p| p.enabled) {
+            if Self::apply_enabled(p.hwnd, false, &p.process).is_ok() {
+                p.enabled = false;
+                n += 1;
+            } else {
                 failures += 1;
             }
         }
-        self.pending.clear();
+        for p in self.pending.iter_mut().filter(|p| p.enabled) {
+            p.enabled = false;
+            n += 1;
+        }
         (n, failures)
     }
 
@@ -186,8 +227,9 @@ impl Pins {
         if hwnd == 0 {
             return Err(PinError::NoWindow);
         }
-        if let Some((_, restored)) = self.unpin(hwnd) {
-            return if restored { Ok(false) } else { Err(PinError::RestoreFailed) };
+        if self.is_managed(hwnd) {
+            let enabled = !self.is_pinned(hwnd);
+            return self.set_enabled(hwnd, enabled).map(|()| enabled);
         }
         self.pin(hwnd).map(|_| true)
     }
@@ -244,7 +286,7 @@ impl Pins {
         out.list_changed = self.pinned.len() != before;
 
         for p in &mut self.pinned {
-            if !win::is_topmost(p.hwnd) {
+            if p.enabled && !win::is_topmost(p.hwnd) {
                 win::apply_topmost(p.hwnd);
             }
             let title = win::window_title(p.hwnd);
@@ -258,10 +300,12 @@ impl Pins {
         // windows only while saved pins are waiting, on the existing timer.
         if !self.pending.is_empty() {
             for w in win::enumerate_windows() {
-                if self.is_pinned(w.hwnd) { continue; }
+                if self.is_managed(w.hwnd) { continue; }
                 if let Some(saved) = self.pending.iter().find(|s| s.matches(&w.process, &w.title)).cloned() {
                     if self.apply_saved(w.hwnd, &saved) {
-                        out.restored.push(w.hwnd);
+                        if saved.enabled {
+                            out.restored.push(w.hwnd);
+                        }
                         out.list_changed = true;
                     }
                 }
@@ -271,11 +315,11 @@ impl Pins {
     }
 
     fn apply_saved(&mut self, hwnd: Hwnd, saved: &SavedPin) -> bool {
-        if self.pin(hwnd).is_err() {
+        if self.manage(hwnd, saved.enabled).is_err() {
             return false;
         }
         // After a crash the window still carries PinIt's changes from last
-        // time, which pin() just recorded as the app's own. The saved flags
+        // time, which manage() just recorded as the app's own. The saved flags
         // know better.
         if let Some(p) = self.find(hwnd) {
             p.was_layered &= saved.was_layered;
@@ -293,16 +337,18 @@ impl Pins {
         true
     }
 
-    /// At startup: re-pin saved windows that are open; the rest wait for
+    /// At startup: restore saved windows that are open; the rest wait for
     /// their window (PinIt usually starts before the apps after a reboot).
     pub fn restore(&mut self, saved: Vec<SavedPin>) -> Vec<Hwnd> {
         self.pending = saved.clone();
         let live = win::enumerate_windows();
         let mut restored = Vec::new();
         for s in &saved {
-            if let Some(w) = live.iter().find(|w| !self.is_pinned(w.hwnd) && s.matches(&w.process, &w.title)) {
+            if let Some(w) = live.iter().find(|w| !self.is_managed(w.hwnd) && s.matches(&w.process, &w.title)) {
                 if self.apply_saved(w.hwnd, s) {
-                    restored.push(w.hwnd);
+                    if s.enabled {
+                        restored.push(w.hwnd);
+                    }
                 }
             }
         }
@@ -315,6 +361,12 @@ impl Pins {
         }
     }
 
+    pub fn toggle_pending(&mut self, index: usize) -> Option<bool> {
+        let pin = self.pending.get_mut(index)?;
+        pin.enabled = !pin.enabled;
+        Some(pin.enabled)
+    }
+
     pub fn set_session_ending(&mut self, ending: bool) {
         self.session_ending = ending;
     }
@@ -323,7 +375,7 @@ impl Pins {
     /// forgotten; at logoff/shutdown they are kept for the next login.
     pub fn release_all(&mut self) {
         for p in &self.pinned {
-            Self::release(p);
+            Self::release(p, false);
         }
         if !self.session_ending {
             self.pinned.clear();
@@ -338,6 +390,7 @@ impl Pins {
             .map(|p| SavedPin {
                 process_name: p.process.clone(),
                 title: p.title.clone(),
+                enabled: p.enabled,
                 opacity: win::percent_to_alpha(p.opacity) as i32,
                 click_through: p.click_through,
                 was_layered: p.was_layered,
@@ -348,5 +401,30 @@ impl Pins {
             })
             .chain(self.pending.iter().cloned())
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unpin_all_retains_waiting_entries_and_their_settings() {
+        let pending: SavedPin = serde_json::from_str(
+            r#"{"process_name":"Code.exe","title":"Notes","opacity":128,"click_through":true}"#,
+        ).unwrap();
+        let mut pins = Pins { pending: vec![pending.clone()], ..Default::default() };
+
+        assert_eq!(pins.unpin_all(), (1, 0));
+        assert_eq!(pins.pending().len(), 1);
+        assert!(!pins.pending()[0].enabled);
+        assert_eq!(pins.pending()[0].opacity, pending.opacity);
+        assert_eq!(pins.pending()[0].click_through, pending.click_through);
+        assert!(pins.is_active(), "waiting entries still need the discovery timer");
+        assert_eq!(pins.saved(), pins.pending());
+        assert_eq!(pins.unpin_all(), (0, 0));
+        assert_eq!(pins.toggle_pending(0), Some(true));
+        pins.forget_pending(0);
+        assert!(!pins.is_active());
     }
 }

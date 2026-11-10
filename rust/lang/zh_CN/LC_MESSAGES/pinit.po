@@ -41,7 +41,11 @@ msgstr "恢复默认"
 
 msgctxt "ui"
 msgid "Drag to pin a window"
-msgstr "拖动图钉到窗口上置顶"
+msgstr "拖动到目标窗口上置顶"
+
+msgctxt "ui"
+msgid "Drag to pin"
+msgstr "拖动置顶"
 
 msgctxt "ui"
 msgid "Each needs Win, Ctrl or Alt."
@@ -52,8 +56,24 @@ msgid "Follow system"
 msgstr "跟随系统"
 
 msgctxt "ui"
-msgid "Forget {}"
-msgstr "移除待恢复：{}"
+msgid "Remove {}"
+msgstr "移除：{}"
+
+msgctxt "ui"
+msgid "Restore PinIt"
+msgstr "恢复 PinIt"
+
+msgctxt "ui"
+msgid "Show compact PinIt"
+msgstr "收起为迷你窗口"
+
+msgctxt "ui"
+msgid "Keep PinIt on top"
+msgstr "置顶 PinIt"
+
+msgctxt "ui"
+msgid "Unpin PinIt"
+msgstr "取消 PinIt 置顶"
 
 msgctxt "ui"
 msgid "Language"
@@ -72,12 +92,16 @@ msgid "No windows to pin. Open an app and try again."
 msgstr "没有可置顶的窗口，请先打开程序。"
 
 msgctxt "ui"
-msgid "Nothing pinned yet"
-msgstr "暂无置顶窗口"
+msgid "No managed windows yet"
+msgstr "暂无管理窗口"
 
 msgctxt "ui"
 msgid "Opacity of {}"
 msgstr "{} 的不透明度"
+
+msgctxt "ui"
+msgid "Pin {}"
+msgstr "置顶：{}"
 
 msgctxt "ui"
 msgid "Pin {} ({})"
@@ -100,12 +124,12 @@ msgid "Pinned"
 msgstr "已置顶"
 
 msgctxt "ui"
-msgid "PINNED"
-msgstr "置顶窗口"
+msgid "Managed windows"
+msgstr "窗口管理"
 
 msgctxt "ui"
-msgid "PINNED · {}"
-msgstr "置顶窗口 · {}"
+msgid "Managed windows · {}"
+msgstr "窗口管理 · {}"
 
 msgctxt "ui"
 msgid "Play a sound when pinning"
@@ -146,6 +170,10 @@ msgstr "开机启动 PinIt"
 msgctxt "ui"
 msgid "Unpin {}"
 msgstr "取消置顶：{}"
+
+msgctxt "ui"
+msgid "Unpin and remove {}"
+msgstr "取消置顶并移除：{}"
 
 msgctxt "ui"
 msgid "Unpin {} ({})"

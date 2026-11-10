@@ -28,9 +28,23 @@ file properties and `installer/PinIt.iss` reads it from there. CI
 (`.github/workflows/build.yml`) runs the tests and builds the installer and
 the portable ZIP from `target/release/pinit.exe`.
 
-PinIt's frameless title area can be dragged to move the window. Drag the
-pushpin left of **Shortcuts** onto another visible application window and
-release to pin it. The same window is never unpinned by dragging the pin.
+PinIt's frameless title area can be dragged to move the window. Click the
+top-left logo/name to keep PinIt on top and collapse it to a rounded mini
+window; drag the mini window to move it, or click it to restore the full
+window at its previous size. Restoring keeps PinIt on top until you turn off
+the titlebar pin. That pin controls **PinIt itself**, with distinct on/off icons.
+
+The main action is split in two: **Pin a window…** opens the existing picker;
+**Drag to pin** can be dragged onto another visible application window and
+released to pin it. Dragging never unpins an already pinned window.
+
+Managed rows have a separate pin switch: turning it off keeps the window in
+the list, with its opacity and click-through settings. **Unpin all** turns
+off all switches, including waiting entries, without removing them. The
+row's **×** unpins the window, restores its original opacity/click-through,
+and removes it from management. Both active and inactive entries survive
+restarts; inactive entries are restored without turning topmost back on.
+
 The top-right minus minimizes PinIt and the close button hides it to the tray.
 The bottom edge remains resizable vertically. The 4.0 UI draws rounded
 window and dialog surfaces with Slint's native DPI-aware geometry and keeps

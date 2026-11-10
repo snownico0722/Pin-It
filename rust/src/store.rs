@@ -22,6 +22,10 @@ pub struct SavedPin {
     pub process_name: String,
     #[serde(default)]
     pub title: String,
+    /// A managed window can stay in the list while always-on-top is off.
+    /// Older files contain only pinned windows.
+    #[serde(default = "yes")]
+    pub enabled: bool,
     /// 8-bit alpha (0-255), as the first Rust build wrote it.
     #[serde(default = "opaque")]
     pub opacity: i32,
@@ -207,6 +211,7 @@ mod tests {
         let state: State = serde_json::from_str(json).unwrap();
         assert_eq!(state.pins.len(), 2);
         assert_eq!(state.pins[0].title, "A");
+        assert!(state.pins.iter().all(|p| p.enabled), "old pins remain enabled");
         assert!(state.pins[0].click_through);
         assert!(!state.pins[0].was_layered);
         assert!(state.pins[0].original_layered.is_none(), "older pin files remain compatible");
@@ -227,6 +232,16 @@ mod tests {
         assert!(state.pins.is_empty());
         assert!(state.settings.enable_sound);
         assert!(serde_json::from_str::<State>("not json").is_err());
+    }
+
+    #[test]
+    fn inactive_managed_windows_survive_a_round_trip() {
+        let pin: SavedPin = serde_json::from_str(
+            r#"{"process_name":"Code.exe","title":"Notes","enabled":false,"opacity":128,"click_through":true}"#,
+        ).unwrap();
+        assert!(!pin.enabled);
+        let again: SavedPin = serde_json::from_value(serde_json::to_value(&pin).unwrap()).unwrap();
+        assert_eq!(again, pin);
     }
 
     #[test]

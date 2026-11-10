@@ -46,6 +46,9 @@ Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide
 - **Pins survive restarts** — PinIt remembers what you pinned (and its opacity). After a restart it pins each window again as soon as that window is open.
 - **Windows 11 topmost re-enforcement** — Win11's compositor sometimes strips the always-on-top flag; PinIt re-applies it automatically.
 - **Click-through** — let mouse clicks pass through a faded window to whatever is behind it.
+- **Mini window and self pinning** — click the PinIt logo/name to collapse to a rounded, always-on-top mini window; drag it to move or click to restore. The titlebar pin toggles PinIt's own always-on-top state.
+- **Managed window switches** — toggle a window's pin without removing it from the list. The row's × unpins and removes it; **Unpin all** keeps the entries and switches every pin off. Active and inactive states are remembered across restarts.
+- **Pick or drag to pin** — the split main action opens the window picker on the left and lets you drag onto a target window on the right.
 - **System tray app** — closes to the tray and stays out of your way; the tray menu lists your pinned windows. Optional start-with-Windows.
 - **Light and dark** — follows your Windows colour mode.
 - **Tiny and fast** — native Rust/Slint talking directly to the Windows API. Minimal RAM, instant response.
@@ -92,7 +95,7 @@ Yes — pin a window with PinIt, then press `Win+Ctrl+-` to fade it (down to 20%
 
 ### Do my pinned windows stay on top after I restart?
 
-Yes. PinIt saves your pins (app, window title and opacity) to `%LOCALAPPDATA%\PinIt`. After a restart, each saved window is pinned again as soon as it is open with the same title — windows that aren't open yet are listed as "Waiting" in PinIt until they are. Quitting PinIt yourself (tray → Quit) unpins everything and clears the list. Neither PowerToys nor DeskPins remembers pins at all.
+Yes. PinIt saves your managed windows (app, window title, pin state and opacity) to `%LOCALAPPDATA%\PinIt`. After a restart, each saved window is restored as soon as it is open with the same title; windows whose pin switch was off stay unpinned. Windows that aren't open yet are listed as "Waiting" in PinIt until they are. Quitting PinIt yourself (tray → Quit) restores the windows and clears the list. Neither PowerToys nor DeskPins remembers pins at all.
 
 ### Does it work with apps running as administrator?
 

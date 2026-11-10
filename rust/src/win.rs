@@ -11,8 +11,9 @@ use windows::Win32::Graphics::Dwm::{
     DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_USE_IMMERSIVE_DARK_MODE,
 };
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetObjectW, SelectObject,
-    BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetMonitorInfoW, GetObjectW,
+    MonitorFromWindow, SelectObject, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    MONITORINFO, MONITOR_DEFAULTTONEAREST,
 };
 use windows::Win32::Media::Audio::{PlaySoundW, SND_ASYNC, SND_MEMORY, SND_NODEFAULT};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, VK_ESCAPE, VK_LBUTTON};
@@ -198,11 +199,37 @@ pub fn drag_cancelled_by_escape() -> bool {
 /// capture belongs to PinIt's UI thread and is held only for the mouse drag.
 /// Never change the global/system cursor configuration with SetSystemCursor.
 pub fn start_pin_drag_cursor(hwnd: Hwnd) {
+    if is_valid_window(hwnd) {
+        capture_pointer(hwnd);
+        maintain_pin_drag_cursor();
+    }
+}
+
+pub fn capture_pointer(hwnd: Hwnd) {
+    unsafe { SetCapture(h(hwnd)); }
+}
+
+/// Move the brand from its original pointer offset in physical pixels. No
+/// native modal move loop: the app can distinguish a click from a drag.
+pub fn move_window(hwnd: Hwnd, x: i32, y: i32) {
     unsafe {
-        if is_valid_window(hwnd) {
-            SetCapture(h(hwnd));
-            maintain_pin_drag_cursor();
+        let _ = SetWindowPos(h(hwnd), None, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+/// Expanding a mini window near a screen edge must leave the controls visible.
+pub fn fit_to_work_area(hwnd: Hwnd) {
+    unsafe {
+        let monitor = MonitorFromWindow(h(hwnd), MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let mut rect = RECT::default();
+        if !GetMonitorInfoW(monitor, &mut info).as_bool() || GetWindowRect(h(hwnd), &mut rect).is_err() {
+            return;
         }
+        let work = info.rcWork;
+        let x = rect.left.clamp(work.left, (work.right - (rect.right - rect.left)).max(work.left));
+        let y = rect.top.clamp(work.top, (work.bottom - (rect.bottom - rect.top)).max(work.top));
+        if x != rect.left || y != rect.top { move_window(hwnd, x, y); }
     }
 }
 

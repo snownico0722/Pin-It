@@ -80,6 +80,61 @@ export component AppMark {
     }
 }
 
+// The brand is both the compact-mode switch and a window drag handle.
+// Rust distinguishes a click from a drag after this initial pointer press.
+export component BrandButton {
+    in property <bool> compact: false;
+    callback pointer-down();
+    callback activated();
+    accessible-role: button;
+    accessible-label: compact ? @tr("ui" => "Restore PinIt") : @tr("ui" => "Show compact PinIt");
+    accessible-action-default => { root.activated(); }
+    forward-focus: focus;
+
+    HorizontalLayout {
+        padding-left: compact ? 8px : 0px;
+        padding-right: compact ? 8px : 0px;
+        spacing: 6px;
+        AppMark {
+            y: (parent.height - self.height) / 2;
+        }
+        Text {
+            text: "PinIt";
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+            font-family: Theme.display-font;
+            font-size: 15px;
+            font-weight: 700;
+            color: Theme.text;
+        }
+    }
+
+    Rectangle {
+        border-radius: compact ? 10px : 5px;
+        border-width: focus.has-focus && focus.focus-visible ? 2px : 0px;
+        border-color: Theme.focus;
+        background: transparent;
+    }
+    focus := FocusScope {
+        property <bool> focus-visible: true;
+        key-pressed(event) => {
+            if (event.text == " " || event.text == "\n") {
+                root.activated();
+                return accept;
+            }
+            reject
+        }
+    }
+    TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                root.pointer-down();
+            }
+        }
+    }
+}
+
 export enum ButtonKind { primary, secondary, ghost, danger-ghost }
 
 export component Button {
@@ -87,6 +142,7 @@ export component Button {
     in property <string> icon;
     in property <ButtonKind> kind: secondary;
     in property <bool> enabled: true;
+    in property <bool> checked: false;
     in property <length> radius: 7px;
     in property <length> font-size: Theme.small;
     in property <string> tooltip;
@@ -110,7 +166,7 @@ export component Button {
             : kind == ButtonKind.primary ? (down ? Theme.accent-hover : touch.has-hover ? Theme.accent-hover : Theme.accent-strong)
             : kind == ButtonKind.secondary ? (down ? Theme.raised.darker(4%) : touch.has-hover ? Theme.raised : Theme.card)
             : kind == ButtonKind.danger-ghost ? (touch.has-hover || focus.has-focus ? Theme.danger-soft : transparent)
-            : (down ? Theme.raised.darker(4%) : touch.has-hover ? Theme.raised : transparent);
+            : (down ? Theme.raised.darker(4%) : touch.has-hover ? Theme.raised : checked ? Theme.accent-soft : transparent);
         border-width: kind == ButtonKind.secondary ? 1px : 0px;
         border-color: Theme.border;
         drop-shadow-blur: kind == ButtonKind.primary && enabled ? (touch.has-hover ? 8px : 4px) : 0px;
@@ -131,7 +187,7 @@ export component Button {
                 color: !enabled ? Theme.text-subtle
                     : kind == ButtonKind.primary ? Theme.on-accent
                     : kind == ButtonKind.danger-ghost && (touch.has-hover || focus.has-focus) ? Theme.danger
-                    : kind == ButtonKind.ghost ? Theme.text-muted : Theme.text;
+                    : kind == ButtonKind.ghost ? (checked ? Theme.accent-hover : Theme.text-muted) : Theme.text;
             }
             if text != "": Text {
                 text: root.text;
@@ -182,6 +238,17 @@ export component IconButton inherits Button {
     height: 24px;
     radius: 6px;
     kind: ghost;
+}
+
+// The unpinned form is crossed out, so state is visible without colour alone.
+export component PinButton inherits IconButton {
+    in property <bool> pinned: false;
+    checked: pinned;
+    icon: pinned ? Icons.pin
+        : "M9 3.5h6M14 3.5v5.5l3.5 4h-4M10 3.5v2M6.5 13H10M12 16v4.5M4 4l16 16";
+    accessible-role: checkbox;
+    accessible-checkable: true;
+    accessible-checked: pinned;
 }
 
 export component CheckBox {

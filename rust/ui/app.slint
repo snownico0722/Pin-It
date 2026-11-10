@@ -1,10 +1,10 @@
-// The PinIt window: a compact list of pinned windows with opacity sliders,
+// The PinIt window: a compact list of managed windows with opacity sliders,
 // plus four sheets (window picker, shortcut editor, settings, about).
 
 import { ScrollView, LineEdit, ComboBox } from "std-widgets.slint";
 import { Theme, Icons } from "theme.slint";
 import {
-    Glyph, Button, ButtonKind, IconButton, CheckBox, Slider, KeyCombo, Card, SectionTitle, AppAvatar, AppMark, Sheet
+    Glyph, Button, ButtonKind, IconButton, PinButton, BrandButton, CheckBox, Slider, KeyCombo, Card, SectionTitle, AppAvatar, Sheet
 } from "controls.slint";
 
 export { Theme }
@@ -13,6 +13,7 @@ export struct PinRow {
     title: string,
     process: string,
     opacity: int,
+    pinned: bool,
     click-through: bool,
     icon: image,
     has-icon: bool,
@@ -45,7 +46,8 @@ component PinCard {
     in property <PinRow> pin;
     callback opacity-changed(int);
     callback toggle-click-through();
-    callback unpin();
+    callback toggle-pin();
+    callback remove();
     callback hovered(bool);
 
     property <bool> hover: touch.has-hover;
@@ -69,7 +71,7 @@ component PinCard {
         HorizontalLayout {
             padding-left: 8px;
             padding-right: 5px;
-            spacing: 7px;
+            spacing: 5px;
 
             AppAvatar {
                 y: (parent.height - self.height) / 2;
@@ -131,12 +133,18 @@ component PinCard {
                     clicked => { root.toggle-click-through(); }
                 }
             }
+            PinButton {
+                y: (parent.height - self.height) / 2;
+                pinned: pin.pinned;
+                tooltip: pin.pinned ? @tr("ui" => "Unpin {}", pin.title) : @tr("ui" => "Pin {}", pin.title);
+                clicked => { root.toggle-pin(); }
+            }
             IconButton {
                 y: (parent.height - self.height) / 2;
                 icon: Icons.close;
                 kind: danger-ghost;
-                tooltip: pin.waiting ? @tr("ui" => "Forget {}", pin.title) : @tr("ui" => "Unpin {}", pin.title);
-                clicked => { root.unpin(); }
+                tooltip: pin.pinned ? @tr("ui" => "Unpin and remove {}", pin.title) : @tr("ui" => "Remove {}", pin.title);
+                clicked => { root.remove(); }
             }
         }
     }
@@ -256,21 +264,26 @@ export component AppWindow inherits Window {
     // Keep the native resize hit-test around the visible card, not merely
     // at the outer edge of the 16px transparent shadow margin.
     no-frame: true;
-    resize-border-width: 20px;
+    resize-border-width: compact ? 0px : 20px;
     icon: @image-url("../../resources/icon-256.png");
     background: transparent;
     default-font-family: Theme.font;
     default-font-size: Theme.body;
     // 16px transparent breathing room on each side for the real soft shadow.
     // The inner panel keeps the previous 340px content width.
-    preferred-width: 372px;
-    min-width: 372px;
-    max-width: 372px;
-    preferred-height: 382px;
-    min-height: 292px;
+    preferred-width: compact ? 144px : 372px;
+    min-width: compact ? 144px : 372px;
+    max-width: compact ? 144px : 372px;
+    preferred-height: compact ? 72px : 382px;
+    min-height: compact ? 72px : 292px;
+    states [
+        mini when compact: { max-height: 72px; }
+    ]
 
     // State from Rust
     in property <[PinRow]> pins;
+    in property <bool> compact: false;
+    in property <bool> self-pinned: false;
     in property <[string]> pin-keys;           // the pin shortcut, for the hint line
     in-out property <bool> sound;
     in-out property <bool> notifications;
@@ -300,13 +313,17 @@ export component AppWindow inherits Window {
 
     // Callbacks to Rust
     callback open-picker();
+    callback toggle-compact();
+    callback brand-pointer-down();
+    callback toggle-self-pin();
     callback start-pin-drag();
     in property <bool> pin-drag-active: false;
     callback pick(int);
     callback filter-changed(string);
     callback set-opacity(int, int);
     callback toggle-click-through(int);
-    callback unpin(int);
+    callback toggle-pin(int);
+    callback remove-pin(int);
     callback row-hovered(int, bool);
     callback unpin-all();
     callback setting-changed(string, bool);
@@ -350,68 +367,47 @@ export component AppWindow inherits Window {
         // The entire top band inside the native 20px resize border is a
         // window-move target, including the margin above the title and the
         // gaps between controls. Place it BEHIND the interactive buttons:
-        // their TouchAreas still receive clicks and the pin has its own
-        // cross-window drag gesture. The last 8px before the primary action
+        // their TouchAreas still receive clicks. The last 8px before the primary action
         // belong to the title band too, never to the content button.
         WindowMoveArea {
             x: 4px;
             y: 4px;
             width: parent.width - 8px;
             height: 44px;
-            enabled: !root.pin-drag-active && !root.picker-open
+            enabled: !root.compact && !root.pin-drag-active && !root.picker-open
                 && !root.shortcuts-open && !root.settings-open;
         }
 
-        VerticalLayout {
+        if root.compact: BrandButton {
+            width: parent.width;
+            height: parent.height;
+            compact: true;
+            pointer-down => { root.brand-pointer-down(); }
+            activated => { root.toggle-compact(); }
+        }
+
+        if !root.compact: VerticalLayout {
             padding: 12px;
             padding-top: 10px;
             spacing: 8px;
 
-        // All header spacing, branding and non-button pixels can start a
-        // native move. Buttons stay clickable; the pin stays draggable.
+        // Branding distinguishes click-to-compact from dragging. Remaining
+        // header spacing still starts a native move through WindowMoveArea.
         HorizontalLayout {
             height: 30px;
             spacing: 3px;
-            HorizontalLayout {
+            BrandButton {
                 horizontal-stretch: 1;
-                spacing: 6px;
-                AppMark {
-                    y: (parent.height - self.height) / 2;
-                }
-                Text {
-                    text: "PinIt";
-                    vertical-alignment: center;
-                    horizontal-stretch: 1;
-                    font-family: Theme.display-font;
-                    font-size: 15px;
-                    font-weight: 700;
-                    color: Theme.text;
-                    accessible-role: text;
-                }
+                pointer-down => { root.brand-pointer-down(); }
+                activated => { root.toggle-compact(); }
             }
-            Rectangle {
+            PinButton {
                 width: 28px;
                 height: 28px;
-                border-radius: 6px;
-                background: root.pin-drag-active ? Theme.accent-soft
-                    : drag-pin-touch.has-hover ? Theme.raised : transparent;
-                accessible-role: button;
-                accessible-label: @tr("ui" => "Drag to pin a window");
-                Glyph {
-                    x: (parent.width - self.width) / 2;
-                    y: (parent.height - self.height) / 2;
-                    icon: Icons.pin;
-                    size: 17px;
-                    color: root.pin-drag-active ? Theme.accent-hover : Theme.text-muted;
-                }
-                drag-pin-touch := TouchArea {
-                    mouse-cursor: root.pin-drag-active ? crosshair : grab;
-                    pointer-event(event) => {
-                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
-                            root.start-pin-drag();
-                        }
-                    }
-                }
+                icon-size: 17px;
+                pinned: root.self-pinned;
+                tooltip: root.self-pinned ? @tr("ui" => "Unpin PinIt") : @tr("ui" => "Keep PinIt on top");
+                clicked => { root.toggle-self-pin(); }
             }
             IconButton {
                 width: 28px;
@@ -449,21 +445,60 @@ export component AppWindow inherits Window {
             }
         }
 
-        Button {
-            kind: primary;
-            icon: Icons.plus;
-            text: @tr("ui" => "Pin a window…");
-            font-size: Theme.body;
+        HorizontalLayout {
             height: 30px;
-            horizontal-stretch: 1;
-            clicked => { root.open-picker(); }
+            spacing: 6px;
+            Button {
+                width: (parent.width - 6px) / 2;
+                kind: primary;
+                icon: Icons.plus;
+                text: @tr("ui" => "Pin a window…");
+                font-size: Theme.body;
+                horizontal-stretch: 1;
+                clicked => { root.open-picker(); }
+            }
+            Rectangle {
+                width: (parent.width - 6px) / 2;
+                horizontal-stretch: 1;
+                border-radius: 7px;
+                background: root.pin-drag-active || drag-pin-touch.has-hover ? Theme.accent-hover : Theme.accent-strong;
+                accessible-role: button;
+                accessible-label: @tr("ui" => "Drag to pin a window");
+                // Keyboard and assistive-tech users can select from the picker.
+                accessible-action-default => { root.open-picker(); }
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 5px;
+                    Glyph {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.pin;
+                        size: 13px;
+                        color: Theme.on-accent;
+                    }
+                    drag-pin-label := Text {
+                        text: @tr("ui" => "Drag to pin");
+                        vertical-alignment: center;
+                        font-size: Theme.body;
+                        font-weight: 600;
+                        color: Theme.on-accent;
+                    }
+                }
+                drag-pin-touch := TouchArea {
+                    mouse-cursor: root.pin-drag-active ? crosshair : grab;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down && event.button == PointerEventButton.left) {
+                            root.start-pin-drag();
+                        }
+                    }
+                }
+            }
         }
 
-        // Pinned windows
+        // Managed windows include entries whose topmost switch is off.
         HorizontalLayout {
             height: 18px;
             SectionTitle {
-                text: pins.length == 0 ? @tr("ui" => "PINNED") : @tr("ui" => "PINNED · {}", pins.length);
+                text: pins.length == 0 ? @tr("ui" => "Managed windows") : @tr("ui" => "Managed windows · {}", pins.length);
                 vertical-alignment: center;
                 horizontal-stretch: 1;
             }
@@ -511,7 +546,7 @@ export component AppWindow inherits Window {
                             }
                         }
                         Text {
-                            text: @tr("ui" => "Nothing pinned yet");
+                            text: @tr("ui" => "No managed windows yet");
                             horizontal-alignment: center;
                             font-size: Theme.body;
                             font-weight: 600;
@@ -524,7 +559,8 @@ export component AppWindow inherits Window {
                     pin: p;
                     opacity-changed(v) => { root.set-opacity(i, v); }
                     toggle-click-through => { root.toggle-click-through(i); }
-                    unpin => { root.unpin(i); }
+                    toggle-pin => { root.toggle-pin(i); }
+                    remove => { root.remove-pin(i); }
                     hovered(h) => { root.row-hovered(i, h); }
                 }
             }
@@ -546,11 +582,11 @@ export component AppWindow inherits Window {
 
     // Toast
     toast := Rectangle {
-        property <bool> show: root.toast-visible && root.toast-text != "";
+        property <bool> show: !root.compact && root.toast-visible && root.toast-text != "";
         x: (parent.width - self.width) / 2;
         y: show ? parent.height - self.height - 40px : parent.height - self.height - 28px;
         opacity: show ? 1 : 0;
-        visible: self.opacity > 0.01;
+        visible: !root.compact && self.opacity > 0.01;
         animate y, opacity { duration: Theme.medium; easing: ease-out; }
         width: min(parent.width - 32px, toast-label.preferred-width + 22px);
         height: toast-label.preferred-height + 12px;
@@ -578,7 +614,7 @@ export component AppWindow inherits Window {
 
     // Window picker
     Sheet {
-        open: root.picker-open;
+        open: !root.compact && root.picker-open;
         title: @tr("ui" => "Pin a window");
         sheet-height: 420px;
         close => { root.picker-open = false; }
@@ -621,7 +657,7 @@ export component AppWindow inherits Window {
 
     // Shortcut editor
     Sheet {
-        open: root.shortcuts-open;
+        open: !root.compact && root.shortcuts-open;
         title: @tr("ui" => "Shortcuts");
         subtitle: @tr("ui" => "Each needs Win, Ctrl or Alt.");
         sheet-height: 420px;
@@ -700,7 +736,7 @@ export component AppWindow inherits Window {
 
     // Settings
     Sheet {
-        open: root.settings-open;
+        open: !root.compact && root.settings-open;
         title: @tr("ui" => "Settings");
         sheet-height: 245px;
         close => { root.settings-open = false; }

@@ -66,6 +66,14 @@ struct PinDrag {
     capture: Option<Hwnd>,
 }
 
+#[derive(Clone, Copy)]
+struct BrandDrag {
+    start: (i32, i32),
+    origin: slint::PhysicalPosition,
+    capture: Hwnd,
+    moved: bool,
+}
+
 struct App {
     me: std::rc::Weak<RefCell<App>>,
     ui: slint::Weak<AppWindow>,
@@ -83,7 +91,9 @@ struct App {
     reenforce_timer: slint::Timer,
     save_timer: slint::Timer,
     pin_drag: Option<PinDrag>,
-    pin_drag_timer: slint::Timer,
+    brand_drag: Option<BrandDrag>,
+    drag_timer: slint::Timer,
+    full_size: slint::LogicalSize,
 }
 
 type Shared = Rc<RefCell<App>>;
@@ -117,7 +127,9 @@ fn main() {
         reenforce_timer: slint::Timer::default(),
         save_timer: slint::Timer::default(),
         pin_drag: None,
-        pin_drag_timer: slint::Timer::default(),
+        brand_drag: None,
+        drag_timer: slint::Timer::default(),
+        full_size: slint::LogicalSize::new(372.0, 382.0),
     }));
 
     {
@@ -167,7 +179,7 @@ fn main() {
         ui.window().on_close_requested(move || {
             let mut a = app.borrow_mut();
             a.visible = false;
-            a.cancel_pin_drag();
+            a.cancel_drag();
             flash::hide();
             if !a.state.settings.has_seen_tray_notice {
                 a.state.settings.has_seen_tray_notice = true;
@@ -191,6 +203,15 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
 
     let a = app.clone();
     ui.on_start_pin_drag(move || a.borrow_mut().begin_pin_drag());
+
+    let a = app.clone();
+    ui.on_brand_pointer_down(move || a.borrow_mut().begin_brand_drag());
+
+    let a = app.clone();
+    ui.on_toggle_compact(move || a.borrow_mut().toggle_compact());
+
+    let a = app.clone();
+    ui.on_toggle_self_pin(move || a.borrow_mut().toggle_self_pin());
 
     let a = app.clone();
     ui.on_filter_changed(move |_| a.borrow_mut().filter_picker());
@@ -235,12 +256,32 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
     });
 
     let a = app.clone();
-    ui.on_unpin(move |i| {
+    ui.on_toggle_pin(move |i| {
+        let mut app = a.borrow_mut();
+        match app.rows.get(i as usize).copied() {
+            Some(RowKey::Live(hwnd)) => app.toggle(hwnd, false),
+            Some(RowKey::Waiting(p)) => {
+                app.pins.toggle_pending(p);
+                app.save_now();
+                app.pins_changed();
+            }
+            None => {}
+        }
+    });
+
+    let a = app.clone();
+    ui.on_remove_pin(move |i| {
         let mut app = a.borrow_mut();
         match app.rows.get(i as usize).copied() {
             Some(RowKey::Live(hwnd)) => {
                 flash::hide();
-                app.toggle(hwnd, false);
+                let restored = app.pins.unpin(hwnd).is_none_or(|(_, restored)| restored);
+                app.save_now();
+                app.pins_changed();
+                if !restored {
+                    let message = pins::PinError::RestoreFailed.message(app.zh());
+                    app.message(&message, true);
+                }
             }
             Some(RowKey::Waiting(p)) => {
                 app.pins.forget_pending(p);
@@ -407,7 +448,7 @@ fn tray_menu(app: &Shared, x: i32, y: i32) {
             if p.title.chars().count() > 48 {
                 title.push('…');
             }
-            items.push(host::MenuItem::Command { id: MENU_PINNED + i as u32, text: title, checked: true, enabled: true });
+            items.push(host::MenuItem::Command { id: MENU_PINNED + i as u32, text: title, checked: p.enabled, enabled: true });
         }
         if !pinned.is_empty() {
             items.push(host::MenuItem::Separator);
@@ -417,7 +458,7 @@ fn tray_menu(app: &Shared, x: i32, y: i32) {
             id: MENU_UNPIN_ALL,
             text: a.t("Unpin all").into(),
             checked: false,
-            enabled: a.pins.is_active(),
+            enabled: a.pins.pinned().iter().any(|p| p.enabled) || a.pins.pending().iter().any(|p| p.enabled),
         });
         items.push(host::MenuItem::Separator);
         items.push(host::MenuItem::Command { id: MENU_QUIT, text: a.t("Quit PinIt").into(), checked: false, enabled: true });
@@ -533,12 +574,56 @@ impl App {
     }
 
     fn hide_window(&mut self) {
-        self.cancel_pin_drag();
+        self.cancel_drag();
         flash::hide();
         if let Some(ui) = self.ui() {
             let _ = ui.hide();
         }
         self.visible = false;
+    }
+
+    fn set_self_pinned(&mut self, pinned: bool) -> bool {
+        let (Some(ui), Some(hwnd)) = (self.ui(), self.main_hwnd()) else { return false };
+        let applied = if pinned { win::apply_topmost(hwnd) } else { win::remove_topmost(hwnd) };
+        if !applied || win::is_topmost(hwnd) != pinned {
+            self.toast(self.t("Couldn't change PinIt's always-on-top setting."));
+            return false;
+        }
+        ui.set_self_pinned(pinned);
+        self.update_watchers();
+        true
+    }
+
+    fn toggle_self_pin(&mut self) {
+        if let Some(ui) = self.ui() {
+            self.set_self_pinned(!ui.get_self_pinned());
+        }
+    }
+
+    fn toggle_compact(&mut self) {
+        self.cancel_drag();
+        let Some(ui) = self.ui() else { return };
+        let compact = !ui.get_compact();
+        if compact {
+            if !self.set_self_pinned(true) { return; }
+            self.full_size = ui.window().size().to_logical(ui.window().scale_factor());
+            ui.set_picker_open(false);
+            ui.set_shortcuts_open(false);
+            ui.set_settings_open(false);
+            ui.set_toast_visible(false);
+            flash::hide();
+        }
+        ui.set_compact(compact);
+        let size = if compact { slint::LogicalSize::new(144.0, 72.0) } else { self.full_size };
+        // Slint applies changed min/max constraints on the next event turn.
+        // Resize after that, so the old full/compact width cannot clamp us.
+        let weak = self.me.clone();
+        slint::Timer::single_shot(Duration::ZERO, move || {
+            let Some(app) = weak.upgrade() else { return };
+            let a = app.borrow();
+            if let Some(ui) = a.ui() { ui.window().set_size(size); }
+            if let Some(hwnd) = a.main_hwnd() { win::fit_to_work_area(hwnd); }
+        });
     }
 
     /// A short message: in the window while the user is looking at it, as a
@@ -564,6 +649,10 @@ impl App {
     /// Pin or unpin `hwnd`. `from_hotkey`: the user is looking at that window,
     /// not at PinIt.
     fn toggle(&mut self, hwnd: Hwnd, from_hotkey: bool) {
+        if Some(hwnd) == self.main_hwnd() {
+            self.toggle_self_pin();
+            return;
+        }
         let title = win::window_title(hwnd);
         match self.pins.toggle(hwnd) {
             Ok(pinned) => {
@@ -584,12 +673,6 @@ impl App {
                 self.pins_changed();
             }
             Err(e) => {
-                // A partial native unpin failure still removes the pin. Keep
-                // the list and saved state in sync, but tell the user.
-                if e == pins::PinError::RestoreFailed {
-                    self.save_now();
-                    self.pins_changed();
-                }
                 let message = e.message(self.zh());
                 self.message(&message, true);
             },
@@ -600,7 +683,7 @@ impl App {
     /// so release and target selection use GetAsyncKeyState/GetCursorPos.
     /// The App's own timer is stopped on release, escape, or window hide.
     fn begin_pin_drag(&mut self) {
-        if self.pin_drag.is_some() || !self.visible {
+        if self.pin_drag.is_some() || self.brand_drag.is_some() || !self.visible {
             return;
         }
         let capture = self.main_hwnd();
@@ -611,16 +694,54 @@ impl App {
         if let Some(ui) = self.ui() {
             ui.set_pin_drag_active(true);
         }
+        self.start_drag_timer();
+    }
+
+    fn begin_brand_drag(&mut self) {
+        if self.pin_drag.is_some() || self.brand_drag.is_some() || !self.visible {
+            return;
+        }
+        let (Some(ui), Some(hwnd)) = (self.ui(), self.main_hwnd()) else { return };
+        self.brand_drag = Some(BrandDrag {
+            start: host::cursor_pos(),
+            origin: ui.window().position(),
+            capture: hwnd,
+            moved: false,
+        });
+        win::capture_pointer(hwnd);
+        self.start_drag_timer();
+    }
+
+    fn start_drag_timer(&self) {
         let weak = self.me.clone();
-        self.pin_drag_timer.start(
+        self.drag_timer.start(
             slint::TimerMode::Repeated,
             Duration::from_millis(DRAG_POLL_INTERVAL_MS),
             move || {
                 if let Some(app) = weak.upgrade() {
-                    app.borrow_mut().poll_pin_drag();
+                    let mut a = app.borrow_mut();
+                    if a.brand_drag.is_some() { a.poll_brand_drag(); } else { a.poll_pin_drag(); }
                 }
             },
         );
+    }
+
+    fn poll_brand_drag(&mut self) {
+        let Some(drag) = self.brand_drag else { return };
+        if win::drag_cancelled_by_escape() {
+            self.cancel_drag();
+            return;
+        }
+        let (x, y) = host::cursor_pos();
+        let moved = drag.moved || x.abs_diff(drag.start.0).max(y.abs_diff(drag.start.1)) >= DRAG_THRESHOLD_PX;
+        if moved {
+            if let Some(active) = self.brand_drag.as_mut() { active.moved = true; }
+            win::move_window(drag.capture, drag.origin.x + x - drag.start.0, drag.origin.y + y - drag.start.1);
+        }
+        if !win::drag_mouse_down() {
+            self.cancel_drag();
+            if !moved { self.toggle_compact(); }
+        }
     }
 
     fn poll_pin_drag(&mut self) {
@@ -632,14 +753,14 @@ impl App {
         let (x, y) = host::cursor_pos();
         let distance = x.abs_diff(drag.start.0).max(y.abs_diff(drag.start.1));
         if win::drag_cancelled_by_escape() {
-            self.cancel_pin_drag();
+            self.cancel_drag();
             return;
         }
         let released = !win::drag_mouse_down();
         // A plain click on the pin cannot accidentally pin a random window.
         if distance < DRAG_THRESHOLD_PX {
             if released {
-                self.cancel_pin_drag();
+                self.cancel_drag();
             }
             return;
         }
@@ -656,7 +777,7 @@ impl App {
             }
         }
         if released {
-            self.cancel_pin_drag();
+            self.cancel_drag();
             if let Some(hwnd) = target {
                 // Drag-to-pin adds a pin; it never toggles an existing pin off.
                 if !self.pins.is_pinned(hwnd) {
@@ -666,12 +787,16 @@ impl App {
         }
     }
 
-    fn cancel_pin_drag(&mut self) {
-        let Some(drag) = self.pin_drag.take() else {
+    fn cancel_drag(&mut self) {
+        let capture = if let Some(drag) = self.pin_drag.take() {
+            drag.capture
+        } else if let Some(drag) = self.brand_drag.take() {
+            Some(drag.capture)
+        } else {
             return;
         };
-        self.pin_drag_timer.stop();
-        win::stop_pin_drag_cursor(drag.capture);
+        self.drag_timer.stop();
+        win::stop_pin_drag_cursor(capture);
         flash::hide();
         if let Some(ui) = self.ui() {
             ui.set_pin_drag_active(false);
@@ -684,7 +809,7 @@ impl App {
         self.save_now();
         self.pins_changed();
         if failures != 0 {
-            self.message(&pins::PinError::RestoreFailed.message(self.zh()), true);
+            self.message(&pins::PinError::UnpinFailed.message(self.zh()), true);
         } else {
             self.toast(&match n {
                 0 => self.t("Nothing to unpin.").to_string(),
@@ -695,6 +820,11 @@ impl App {
     }
 
     fn reenforce(&mut self) {
+        if self.ui().is_some_and(|ui| ui.get_self_pinned()) {
+            if let Some(hwnd) = self.main_hwnd() {
+                if !win::is_topmost(hwnd) { win::apply_topmost(hwnd); }
+            }
+        }
         let r = self.pins.reenforce();
         for &hwnd in &r.restored {
             flash::show(hwnd, flash::Kind::Pinned);
@@ -745,7 +875,12 @@ impl App {
             self.rows = keys;
         }
 
-        let active = self.pins.is_active();
+        self.update_watchers();
+        self.refresh_status();
+    }
+
+    fn update_watchers(&self) {
+        let active = self.pins.is_active() || self.ui().is_some_and(|ui| ui.get_self_pinned());
         host::watch_foreground(active);
         if active && !self.reenforce_timer.running() {
             let me = self.me.clone();
@@ -757,7 +892,6 @@ impl App {
         } else if !active {
             self.reenforce_timer.stop();
         }
-        self.refresh_status();
     }
 
     fn update_rows_in_place(&mut self) {
@@ -779,6 +913,7 @@ impl App {
                     title: p.title.as_str().into(),
                     process: p.process.as_str().into(),
                     opacity: p.opacity,
+                    pinned: p.enabled,
                     click_through: p.click_through,
                     has_icon: icon.is_some(),
                     icon: icon.unwrap_or_default(),
@@ -794,6 +929,7 @@ impl App {
                     title: s.title.as_str().into(),
                     process: s.process_name.as_str().into(),
                     opacity: win::alpha_to_percent(s.opacity),
+                    pinned: s.enabled,
                     click_through: s.click_through,
                     icon: Image::default(),
                     has_icon: false,
@@ -808,7 +944,7 @@ impl App {
     /// The tray tooltip. (A shortcut Windows refused is only pointed out in
     /// the shortcut editor, next to that shortcut.)
     fn refresh_status(&self) {
-        let tip = match self.pins.pinned().len() {
+        let tip = match self.pins.pinned().iter().filter(|p| p.enabled).count() {
             0 => "PinIt".to_string(),
             1 => if self.zh() { "PinIt：已置顶 1 个窗口".to_string() } else { "PinIt: 1 window pinned".to_string() },
             n => if self.zh() { format!("PinIt：已置顶 {n} 个窗口") } else { format!("PinIt: {n} windows pinned") },
@@ -827,6 +963,7 @@ impl App {
 
     fn open_picker(&mut self) {
         let Some(ui) = self.ui() else { return };
+        if ui.get_compact() { self.toggle_compact(); }
         self.picker = win::enumerate_windows()
             .into_iter()
             .map(|w| {
