@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -20,6 +20,10 @@ const STALL: u32 = WM_APP + 20;
 static STALL_TARGET: AtomicUsize = AtomicUsize::new(0);
 static TARGET_STALLED: AtomicBool = AtomicBool::new(false);
 static RELEASE_TARGET: AtomicBool = AtomicBool::new(false);
+static DEMOTE_SUCCEEDED: AtomicBool = AtomicBool::new(false);
+static WINDOWPOS_COUNT: AtomicUsize = AtomicUsize::new(0);
+static LAST_INSERT_AFTER: AtomicIsize = AtomicIsize::new(0);
+static LAST_WINDOWPOS_FLAGS: AtomicU32 = AtomicU32::new(0);
 
 fn wait_for(description: &str, timeout: Duration, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + timeout;
@@ -97,18 +101,26 @@ unsafe extern "system" fn target_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 // Make PinIt's next real maintenance pass reapply topmost.
                 // Put it behind responsive desktop windows as well, so hiding
                 // PinIt does not ask Windows to activate the deliberately hung target.
-                let _ = SetWindowPos(hwnd, Some(HWND_BOTTOM), 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+                // Arm before SetWindowPos: it can dispatch a waiting cross-thread
+                // repin before returning, so arming afterwards can miss that call.
                 STALL_TARGET.store(hwnd.0 as usize, Ordering::SeqCst);
+                let demoted = SetWindowPos(hwnd, Some(HWND_BOTTOM), 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE).is_ok();
+                DEMOTE_SUCCEEDED.store(demoted, Ordering::SeqCst);
                 LRESULT(0)
             }
-            WM_WINDOWPOSCHANGING if STALL_TARGET.load(Ordering::SeqCst) == hwnd.0 as usize
-                && (*(lp.0 as *const WINDOWPOS)).hwndInsertAfter == HWND_TOPMOST => {
-                // Signal only once the real cross-process topmost operation has
-                // reached this WndProc; a timer delay alone would not prove that.
-                TARGET_STALLED.store(true, Ordering::SeqCst);
-                while !RELEASE_TARGET.load(Ordering::SeqCst) {
-                    thread::sleep(Duration::from_millis(10));
+            WM_WINDOWPOSCHANGING if STALL_TARGET.load(Ordering::SeqCst) == hwnd.0 as usize => {
+                let position = &*(lp.0 as *const WINDOWPOS);
+                LAST_INSERT_AFTER.store(position.hwndInsertAfter.0 as isize, Ordering::SeqCst);
+                LAST_WINDOWPOS_FLAGS.store(position.flags.0, Ordering::SeqCst);
+                WINDOWPOS_COUNT.fetch_add(1, Ordering::SeqCst);
+                if position.hwndInsertAfter == HWND_TOPMOST {
+                    // Signal only once the real cross-process topmost operation
+                    // reaches this WndProc; elapsed time alone does not prove it.
+                    TARGET_STALLED.store(true, Ordering::SeqCst);
+                    while !RELEASE_TARGET.load(Ordering::SeqCst) {
+                        thread::sleep(Duration::from_millis(10));
+                    }
                 }
                 DefWindowProcW(hwnd, msg, wp, lp)
             }
@@ -156,6 +168,13 @@ impl TargetWindow {
 
 impl Drop for TargetWindow {
     fn drop(&mut self) {
+        if thread::panicking() && !RELEASE_TARGET.load(Ordering::SeqCst) {
+            let armed = STALL_TARGET.load(Ordering::SeqCst);
+            eprintln!("Stall probe: armed={armed:#x}, demote_ok={}, stalled={}, target_topmost={}, windowpos_count={}, last_insert_after={:#x}, last_flags={:#x}",
+                DEMOTE_SUCCEEDED.load(Ordering::SeqCst), TARGET_STALLED.load(Ordering::SeqCst),
+                armed != 0 && topmost(HWND(armed as *mut _)), WINDOWPOS_COUNT.load(Ordering::SeqCst),
+                LAST_INSERT_AFTER.load(Ordering::SeqCst), LAST_WINDOWPOS_FLAGS.load(Ordering::SeqCst));
+        }
         RELEASE_TARGET.store(true, Ordering::SeqCst);
         unsafe { let _ = PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)); }
         if let Some(thread) = self.thread.take() { let _ = thread.join(); }
