@@ -168,6 +168,10 @@ impl Pins {
             pin.original_layered = saved.original_layered.clone().or(pin.original_layered);
             pin.was_topmost &= saved.was_topmost;
             pin.was_click_through &= saved.was_click_through;
+            // A previous crashed instance may already have changed alpha or
+            // added layering (also at 100% for click-through). Cleanup must
+            // know this before the first topmost call can block restoration.
+            pin.opacity_changed = saved.opacity < 255 || (was_layered && !pin.was_layered);
         }
         self.pinned.push(pin);
         // Cleanup needs the original styles BEFORE the first foreign call,

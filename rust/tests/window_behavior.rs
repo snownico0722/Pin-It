@@ -24,6 +24,7 @@ static DEMOTE_SUCCEEDED: AtomicBool = AtomicBool::new(false);
 static WINDOWPOS_COUNT: AtomicUsize = AtomicUsize::new(0);
 static LAST_INSERT_AFTER: AtomicIsize = AtomicIsize::new(0);
 static LAST_WINDOWPOS_FLAGS: AtomicU32 = AtomicU32::new(0);
+static LAST_SEND_FLAGS: AtomicU32 = AtomicU32::new(0);
 
 fn wait_for(description: &str, timeout: Duration, mut condition: impl FnMut() -> bool) {
     let deadline = Instant::now() + timeout;
@@ -113,10 +114,16 @@ unsafe extern "system" fn target_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 let position = &*(lp.0 as *const WINDOWPOS);
                 LAST_INSERT_AFTER.store(position.hwndInsertAfter.0 as isize, Ordering::SeqCst);
                 LAST_WINDOWPOS_FLAGS.store(position.flags.0, Ordering::SeqCst);
+                let send_flags = InSendMessageEx(None);
+                LAST_SEND_FLAGS.store(send_flags, Ordering::SeqCst);
                 WINDOWPOS_COUNT.fetch_add(1, Ordering::SeqCst);
-                if position.hwndInsertAfter == HWND_TOPMOST {
-                    // Signal only once the real cross-process topmost operation
-                    // reaches this WndProc; elapsed time alone does not prove it.
+                // Windows normalizes HWND_TOPMOST into a real insert-after HWND.
+                // The sender-blocked test is Microsoft's documented formula;
+                // our own same-thread BOTTOM setup has ISMEX_NOSEND and is excluded.
+                let sender_blocked = send_flags & (ISMEX_REPLIED | ISMEX_SEND) == ISMEX_SEND;
+                if sender_blocked && position.flags == (SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) {
+                    // This is the real synchronous foreign Z-order operation,
+                    // not an elapsed-time assumption or a fabricated message.
                     TARGET_STALLED.store(true, Ordering::SeqCst);
                     while !RELEASE_TARGET.load(Ordering::SeqCst) {
                         thread::sleep(Duration::from_millis(10));
@@ -170,10 +177,11 @@ impl Drop for TargetWindow {
     fn drop(&mut self) {
         if thread::panicking() && !RELEASE_TARGET.load(Ordering::SeqCst) {
             let armed = STALL_TARGET.load(Ordering::SeqCst);
-            eprintln!("Stall probe: armed={armed:#x}, demote_ok={}, stalled={}, target_topmost={}, windowpos_count={}, last_insert_after={:#x}, last_flags={:#x}",
+            eprintln!("Stall probe: armed={armed:#x}, demote_ok={}, stalled={}, target_topmost={}, windowpos_count={}, last_insert_after={:#x}, last_flags={:#x}, send_flags={:#x}",
                 DEMOTE_SUCCEEDED.load(Ordering::SeqCst), TARGET_STALLED.load(Ordering::SeqCst),
                 armed != 0 && topmost(HWND(armed as *mut _)), WINDOWPOS_COUNT.load(Ordering::SeqCst),
-                LAST_INSERT_AFTER.load(Ordering::SeqCst), LAST_WINDOWPOS_FLAGS.load(Ordering::SeqCst));
+                LAST_INSERT_AFTER.load(Ordering::SeqCst), LAST_WINDOWPOS_FLAGS.load(Ordering::SeqCst),
+                LAST_SEND_FLAGS.load(Ordering::SeqCst));
         }
         RELEASE_TARGET.store(true, Ordering::SeqCst);
         unsafe { let _ = PostMessageW(Some(self.hwnd), WM_CLOSE, WPARAM(0), LPARAM(0)); }
