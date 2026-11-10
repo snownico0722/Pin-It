@@ -22,6 +22,10 @@ pub struct SavedPin {
     pub process_name: String,
     #[serde(default)]
     pub title: String,
+    /// A managed window can stay in the list while always-on-top is off.
+    /// Older files contain only pinned windows.
+    #[serde(default = "yes")]
+    pub enabled: bool,
     /// 8-bit alpha (0-255), as the first Rust build wrote it.
     #[serde(default = "opaque")]
     pub opacity: i32,
@@ -90,6 +94,17 @@ impl Default for Shortcuts {
 pub struct Settings {
     pub enable_sound: bool,
     pub show_notifications: bool,
+    #[serde(default = "yes")]
+    pub pin_when_focused: bool,
+    /// Event-driven raising applies only to PinIt's manual pin and mini mode.
+    #[serde(default = "yes")]
+    pub keep_absolute_topmost: bool,
+    /// Optional 500-ms obscuration check on top of the event-driven strategy.
+    #[serde(default)]
+    pub aggressive_mode: bool,
+    /// If true, the titlebar close button exits instead of hiding to tray.
+    #[serde(default)]
+    pub exit_on_close: bool,
     pub has_seen_tray_notice: bool,
     pub start_with_windows: bool,
     pub ui_language: String,
@@ -103,6 +118,10 @@ impl Default for Settings {
         Settings {
             enable_sound: true,
             show_notifications: false,
+            pin_when_focused: true,
+            keep_absolute_topmost: true,
+            aggressive_mode: false,
+            exit_on_close: false,
             has_seen_tray_notice: false,
             start_with_windows: false,
             ui_language: "system".into(),
@@ -207,6 +226,7 @@ mod tests {
         let state: State = serde_json::from_str(json).unwrap();
         assert_eq!(state.pins.len(), 2);
         assert_eq!(state.pins[0].title, "A");
+        assert!(state.pins.iter().all(|p| p.enabled), "old pins remain enabled");
         assert!(state.pins[0].click_through);
         assert!(!state.pins[0].was_layered);
         assert!(state.pins[0].original_layered.is_none(), "older pin files remain compatible");
@@ -226,7 +246,51 @@ mod tests {
         let state: State = serde_json::from_str("{}").unwrap();
         assert!(state.pins.is_empty());
         assert!(state.settings.enable_sound);
+        assert!(state.settings.pin_when_focused);
+        assert!(state.settings.keep_absolute_topmost);
+        assert!(!state.settings.aggressive_mode);
+        assert!(!state.settings.exit_on_close);
         assert!(serde_json::from_str::<State>("not json").is_err());
+    }
+
+    #[test]
+    fn focus_topmost_setting_defaults_on_and_saves_off() {
+        let mut state: State = serde_json::from_str(r#"{"settings":{"enable_sound":false}}"#).unwrap();
+        assert!(state.settings.pin_when_focused);
+        state.settings.pin_when_focused = false;
+        let saved: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(!saved.settings.pin_when_focused);
+    }
+
+    #[test]
+    fn absolute_and_aggressive_settings_survive_legacy_load_and_round_trip() {
+        let mut state: State = serde_json::from_str(r#"{"settings":{"pin_when_focused":false}}"#).unwrap();
+        assert!(state.settings.keep_absolute_topmost);
+        assert!(!state.settings.aggressive_mode);
+        state.settings.keep_absolute_topmost = false;
+        state.settings.aggressive_mode = true;
+        let again: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(!again.settings.keep_absolute_topmost);
+        assert!(again.settings.aggressive_mode, "disabled dependency must retain the choice");
+    }
+
+    #[test]
+    fn exit_on_close_is_opt_in_and_round_trips() {
+        let mut state: State = serde_json::from_str(r#"{"settings":{"enable_sound":false}}"#).unwrap();
+        assert!(!state.settings.exit_on_close, "old installations keep the tray behavior");
+        state.settings.exit_on_close = true;
+        let again: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(again.settings.exit_on_close);
+    }
+
+    #[test]
+    fn inactive_managed_windows_survive_a_round_trip() {
+        let pin: SavedPin = serde_json::from_str(
+            r#"{"process_name":"Code.exe","title":"Notes","enabled":false,"opacity":128,"click_through":true}"#,
+        ).unwrap();
+        assert!(!pin.enabled);
+        let again: SavedPin = serde_json::from_value(serde_json::to_value(&pin).unwrap()).unwrap();
+        assert_eq!(again, pin);
     }
 
     #[test]

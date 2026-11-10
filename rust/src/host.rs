@@ -199,9 +199,9 @@ unsafe extern "system" fn on_foreground(_: HWINEVENTHOOK, _: u32, _: HWND, _: i3
     emit(Event::ForegroundChanged, false);
 }
 
-/// Hear about every foreground change while windows are pinned. Out of
-/// context: nothing is injected into other apps; Windows queues the event to
-/// this thread.
+/// Listen for foreground changes while managing pins or focus-based topmost.
+/// Include this process, so Alt+Tab back to PinIt also triggers the rule.
+/// Windows queues the out-of-context event without injecting into other apps.
 pub fn watch_foreground(on: bool) {
     HOOK.with(|hook| {
         let mut hook = hook.borrow_mut();
@@ -214,7 +214,7 @@ pub fn watch_foreground(on: bool) {
                     Some(on_foreground),
                     0,
                     0,
-                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+                    WINEVENT_OUTOFCONTEXT,
                 );
                 if !h.is_invalid() {
                     *hook = Some(h);

@@ -28,10 +28,41 @@ file properties and `installer/PinIt.iss` reads it from there. CI
 (`.github/workflows/build.yml`) runs the tests and builds the installer and
 the portable ZIP from `target/release/pinit.exe`.
 
-PinIt's frameless title area can be dragged to move the window. Drag the
-pushpin left of **Shortcuts** onto another visible application window and
-release to pin it. The same window is never unpinned by dragging the pin.
-The top-right minus minimizes PinIt and the close button hides it to the tray.
+PinIt's frameless title area can be dragged to move the window. Click the
+top-left logo/name to collapse PinIt to an always-on-top rounded mini window;
+drag it to move or click to restore the previous size and **previous manual pin
+choice**. The titlebar pin controls PinIt's long-term topmost preference, with
+distinct on/off icons. By default, PinIt also temporarily stays on top while
+focused (Settings → **Always on top while PinIt has focus**), then returns to
+the manual preference when focus leaves. A hotkey/tray wake raises PinIt before
+requesting focus so it can appear above another topmost window.
+
+Two additional Settings control PinIt's own Z-order while the titlebar pin is
+on or mini mode is active. **Keep PinIt above other topmost windows** (on by
+default) re-raises it when the Windows foreground changes, without activating
+it or stealing the focused app's keyboard input. **Aggressive mode** (off by
+default) adds a 500-ms check, only raising when a visible overlapping topmost
+window is above PinIt. Aggressive mode is inactive when absolute topmost is
+off, but its saved choice is retained. Both stop raising when PinIt is
+minimized or hidden. Focus-only temporary pinning never uses these policies.
+
+The main action is split in two: **Pin a window…** opens the existing picker;
+**Drag to pin** can be dragged onto another visible application window and
+released to pin it. Dragging never unpins an already pinned window.
+
+Managed rows have a separate pin switch: turning it off keeps the window in
+the list, with its opacity and click-through settings. **Unpin all** turns
+off all switches, including waiting entries, without removing them. The
+row's **×** unpins the window, restores its original opacity/click-through,
+and removes it from management. Both active and inactive entries survive
+restarts; inactive entries are restored without turning topmost back on.
+
+The top-right minus minimizes PinIt. The close button hides it to the tray by
+default; Settings → **Exit PinIt instead of hiding to tray** changes that button
+(and Windows window-close requests) into a real exit. Exiting matches tray Quit:
+managed windows are restored and forgotten, and the tray icon is removed.
+Click-to-compact is limited to the left logo/name; the middle of the titlebar
+still drags the window without toggling compact mode.
 The bottom edge remains resizable vertically. The 4.0 UI draws rounded
 window and dialog surfaces with Slint's native DPI-aware geometry and keeps
 nine-slice assets for the subtle shadows and dimmed backdrop. This avoids

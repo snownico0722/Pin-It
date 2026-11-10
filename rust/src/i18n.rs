@@ -36,6 +36,7 @@ pub fn tr(zh: bool, key: &'static str) -> &'static str {
         "Shortcuts saved." => "快捷键已保存。",
         "Two actions can't share the same keys." => "两个操作不能使用相同的快捷键。",
         "Couldn't change the startup setting." => "无法修改开机启动设置。",
+        "Couldn't change PinIt's always-on-top setting." => "无法修改 PinIt 的置顶状态。",
         "PinIt is still running" => "PinIt 仍在运行",
         "Your pins stay active. Find PinIt in the tray to open it again." => "窗口置顶仍然有效，可在系统托盘中重新打开 PinIt。",
         _ => key,
