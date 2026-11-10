@@ -68,6 +68,10 @@ msgid "Follow system"
 msgstr "跟随系统"
 
 msgctxt "ui"
+msgid "Exit PinIt instead of hiding to tray"
+msgstr "关闭时退出程序（不驻留后台）"
+
+msgctxt "ui"
 msgid "Remove {}"
 msgstr "移除：{}"
 

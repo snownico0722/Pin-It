@@ -289,6 +289,7 @@ export component AppWindow inherits Window {
     in-out property <bool> pin-when-focused: true;
     in-out property <bool> keep-absolute-topmost: true;
     in-out property <bool> aggressive-mode: false;
+    in-out property <bool> exit-on-close: false;
     in property <[string]> pin-keys;           // the pin shortcut, for the hint line
     in-out property <bool> sound;
     in-out property <bool> notifications;
@@ -396,16 +397,17 @@ export component AppWindow inherits Window {
             padding-top: 10px;
             spacing: 8px;
 
-        // Branding distinguishes click-to-compact from dragging. Remaining
-        // header spacing still starts a native move through WindowMoveArea.
+        // Only the logo and PinIt name toggle compact mode; the blank middle
+        // of the titlebar is a move area, not another compact-mode hit target.
         HorizontalLayout {
             height: 30px;
             spacing: 3px;
             BrandButton {
-                horizontal-stretch: 1;
+                width: 92px;
                 pointer-down => { root.brand-pointer-down(); }
                 activated => { root.toggle-compact(); }
             }
+            Rectangle { horizontal-stretch: 1; }
             PinButton {
                 width: 28px;
                 height: 28px;
@@ -445,7 +447,7 @@ export component AppWindow inherits Window {
                 icon: Icons.close;
                 kind: danger-ghost;
                 tooltip: @tr("ui" => "Close");
-                // Uses the existing close-requested -> hide-to-tray logic.
+                // The close handler decides whether to hide to tray or quit.
                 clicked => { root.close(); }
             }
         }
@@ -743,7 +745,7 @@ export component AppWindow inherits Window {
     Sheet {
         open: !root.compact && root.settings-open;
         title: @tr("ui" => "Settings");
-        sheet-height: 335px;
+        sheet-height: 365px;
         close => { root.settings-open = false; }
 
         VerticalLayout {
@@ -778,6 +780,11 @@ export component AppWindow inherits Window {
                 text: @tr("ui" => "Start PinIt with Windows");
                 checked <=> root.autostart;
                 toggled(on) => { root.setting-changed("autostart", on); }
+            }
+            CheckBox {
+                text: @tr("ui" => "Exit PinIt instead of hiding to tray");
+                checked <=> root.exit-on-close;
+                toggled(on) => { root.setting-changed("exit_on_close", on); }
             }
             HorizontalLayout {
                 spacing: 8px;

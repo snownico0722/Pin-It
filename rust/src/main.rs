@@ -155,6 +155,7 @@ fn main() {
         ui.set_pin_when_focused(a.state.settings.pin_when_focused);
         ui.set_keep_absolute_topmost(a.state.settings.keep_absolute_topmost);
         ui.set_aggressive_mode(a.state.settings.aggressive_mode);
+        ui.set_exit_on_close(a.state.settings.exit_on_close);
         ui.set_autostart(autostart::is_enabled());
         ui.set_language_index(i18n::index(&a.state.settings.ui_language));
     }
@@ -189,14 +190,18 @@ fn main() {
         let app = app.clone();
         ui.window().on_close_requested(move || {
             let mut a = app.borrow_mut();
-            a.visible = false;
-            a.sync_own_topmost();
-            a.cancel_drag();
-            flash::hide();
-            if !a.state.settings.has_seen_tray_notice {
-                a.state.settings.has_seen_tray_notice = true;
-                a.save_now();
-                host::notify(i18n::tr(a.zh(), "PinIt is still running"), i18n::tr(a.zh(), "Your pins stay active. Find PinIt in the tray to open it again."));
+            if a.state.settings.exit_on_close {
+                a.quit();
+            } else {
+                a.visible = false;
+                a.sync_own_topmost();
+                a.cancel_drag();
+                flash::hide();
+                if !a.state.settings.has_seen_tray_notice {
+                    a.state.settings.has_seen_tray_notice = true;
+                    a.save_now();
+                    host::notify(i18n::tr(a.zh(), "PinIt is still running"), i18n::tr(a.zh(), "Your pins stay active. Find PinIt in the tray to open it again."));
+                }
             }
             CloseRequestResponse::HideWindow
         });
@@ -350,6 +355,7 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
                 app.update_watchers();
                 if on { app.check_aggressive_topmost(); }
             }
+            "exit_on_close" => app.state.settings.exit_on_close = on,
             "autostart" => {
                 if !autostart::set_enabled(on) {
                     app.toast(app.t("Couldn't change the startup setting."));
@@ -505,14 +511,7 @@ fn tray_menu(app: &Shared, x: i32, y: i32) {
             a.open_picker();
         }
         MENU_UNPIN_ALL => a.unpin_all(),
-        MENU_QUIT => {
-            logfile::info!("Restored and cleared {} pinned window(s) on manual quit", a.pins.pinned().len());
-            a.pins.release_all();
-            a.save_now();
-            host::remove_tray();
-            flash::hide();
-            let _ = slint::quit_event_loop();
-        }
+        MENU_QUIT => a.quit(),
         id if id >= MENU_PINNED => {
             if let Some(&hwnd) = pinned.get((id - MENU_PINNED) as usize) {
                 a.toggle(hwnd, true);
@@ -622,6 +621,22 @@ impl App {
             let _ = ui.hide();
         }
         self.sync_own_topmost();
+    }
+
+    /// The titlebar close option and tray Quit share one real shutdown path.
+    /// This releases managed windows, forgets pins, removes the tray icon,
+    /// and exits rather than leaving an invisible process running.
+    fn quit(&mut self) {
+        logfile::info!("Restored and cleared {} managed window(s) on quit", self.pins.pinned().len());
+        self.cancel_drag();
+        self.visible = false;
+        self.aggressive_timer.stop();
+        self.reenforce_timer.stop();
+        self.pins.release_all();
+        self.save_now();
+        host::remove_tray();
+        flash::hide();
+        let _ = slint::quit_event_loop();
     }
 
     // Apply the same combined state as Slint's always-on-top binding.

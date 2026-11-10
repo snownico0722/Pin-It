@@ -57,7 +57,12 @@ row's **×** unpins the window, restores its original opacity/click-through,
 and removes it from management. Both active and inactive entries survive
 restarts; inactive entries are restored without turning topmost back on.
 
-The top-right minus minimizes PinIt and the close button hides it to the tray.
+The top-right minus minimizes PinIt. The close button hides it to the tray by
+default; Settings → **Exit PinIt instead of hiding to tray** changes that button
+(and Windows window-close requests) into a real exit. Exiting matches tray Quit:
+managed windows are restored and forgotten, and the tray icon is removed.
+Click-to-compact is limited to the left logo/name; the middle of the titlebar
+still drags the window without toggling compact mode.
 The bottom edge remains resizable vertically. The 4.0 UI draws rounded
 window and dialog surfaces with Slint's native DPI-aware geometry and keeps
 nine-slice assets for the subtle shadows and dimmed backdrop. This avoids

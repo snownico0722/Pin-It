@@ -102,6 +102,9 @@ pub struct Settings {
     /// Optional 500-ms obscuration check on top of the event-driven strategy.
     #[serde(default)]
     pub aggressive_mode: bool,
+    /// If true, the titlebar close button exits instead of hiding to tray.
+    #[serde(default)]
+    pub exit_on_close: bool,
     pub has_seen_tray_notice: bool,
     pub start_with_windows: bool,
     pub ui_language: String,
@@ -118,6 +121,7 @@ impl Default for Settings {
             pin_when_focused: true,
             keep_absolute_topmost: true,
             aggressive_mode: false,
+            exit_on_close: false,
             has_seen_tray_notice: false,
             start_with_windows: false,
             ui_language: "system".into(),
@@ -245,6 +249,7 @@ mod tests {
         assert!(state.settings.pin_when_focused);
         assert!(state.settings.keep_absolute_topmost);
         assert!(!state.settings.aggressive_mode);
+        assert!(!state.settings.exit_on_close);
         assert!(serde_json::from_str::<State>("not json").is_err());
     }
 
@@ -267,6 +272,15 @@ mod tests {
         let again: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
         assert!(!again.settings.keep_absolute_topmost);
         assert!(again.settings.aggressive_mode, "disabled dependency must retain the choice");
+    }
+
+    #[test]
+    fn exit_on_close_is_opt_in_and_round_trips() {
+        let mut state: State = serde_json::from_str(r#"{"settings":{"enable_sound":false}}"#).unwrap();
+        assert!(!state.settings.exit_on_close, "old installations keep the tray behavior");
+        state.settings.exit_on_close = true;
+        let again: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(again.settings.exit_on_close);
     }
 
     #[test]

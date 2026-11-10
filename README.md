@@ -51,7 +51,7 @@ Press `Win+Ctrl+T` and the focused window stays on top of everything else. Slide
 - **Absolute and aggressive self pinning** — with PinIt's own titlebar pin on (or mini mode), event-driven Z-order recovery is enabled by default. An optional aggressive mode checks for overlapping topmost windows every 500 ms. Neither steals keyboard focus; hidden/minimized PinIt stays out of the way.
 - **Managed window switches** — toggle a window's pin without removing it from the list. The row's × unpins and removes it; **Unpin all** keeps the entries and switches every pin off. Active and inactive states are remembered across restarts.
 - **Pick or drag to pin** — the split main action opens the window picker on the left and lets you drag onto a target window on the right.
-- **System tray app** — closes to the tray and stays out of your way; the tray menu lists your pinned windows. Optional start-with-Windows.
+- **System tray app** — closes to the tray by default; Settings can instead make Close exit PinIt and restore/forget managed windows, with no resident background process. The tray menu lists managed windows. Optional start-with-Windows.
 - **Light and dark** — follows your Windows colour mode.
 - **Tiny and fast** — native Rust/Slint talking directly to the Windows API. Minimal RAM, instant response.
 
