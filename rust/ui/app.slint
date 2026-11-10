@@ -264,6 +264,7 @@ export component AppWindow inherits Window {
     // Keep the native resize hit-test around the visible card, not merely
     // at the outer edge of the 16px transparent shadow margin.
     no-frame: true;
+    always-on-top: self-pinned;
     resize-border-width: compact ? 0px : 20px;
     icon: @image-url("../../resources/icon-256.png");
     background: transparent;
