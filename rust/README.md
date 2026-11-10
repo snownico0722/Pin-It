@@ -37,6 +37,15 @@ focused (Settings → **Always on top while PinIt has focus**), then returns to
 the manual preference when focus leaves. A hotkey/tray wake raises PinIt before
 requesting focus so it can appear above another topmost window.
 
+Two additional Settings control PinIt's own Z-order while the titlebar pin is
+on or mini mode is active. **Keep PinIt above other topmost windows** (on by
+default) re-raises it when the Windows foreground changes, without activating
+it or stealing the focused app's keyboard input. **Aggressive mode** (off by
+default) adds a 500-ms check, only raising when a visible overlapping topmost
+window is above PinIt. Aggressive mode is inactive when absolute topmost is
+off, but its saved choice is retained. Both stop raising when PinIt is
+minimized or hidden. Focus-only temporary pinning never uses these policies.
+
 The main action is split in two: **Pin a window…** opens the existing picker;
 **Drag to pin** can be dragged onto another visible application window and
 released to pin it. Dragging never unpins an already pinned window.

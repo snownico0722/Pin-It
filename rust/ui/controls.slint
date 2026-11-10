@@ -253,6 +253,7 @@ export component PinButton inherits IconButton {
 
 export component CheckBox {
     in property <string> text;
+    in property <bool> enabled: true;
     in-out property <bool> checked;
     callback toggled(bool);
 
@@ -261,10 +262,12 @@ export component CheckBox {
     accessible-label: text;
     accessible-checkable: true;
     accessible-checked: checked;
-    accessible-action-default => { root.toggle(); }
+    accessible-enabled: enabled;
+    accessible-action-default => { if (enabled) { root.toggle(); } }
     forward-focus: focus;
 
     function toggle() {
+        if (!root.enabled) { return; }
         root.checked = !root.checked;
         root.toggled(root.checked);
     }
@@ -278,9 +281,9 @@ export component CheckBox {
             width: 15px;
             height: 15px;
             border-radius: 4px;
-            background: checked ? (touch.has-hover ? Theme.accent-hover : Theme.accent-strong) : Theme.card;
+            background: !root.enabled ? Theme.track : checked ? (touch.has-hover ? Theme.accent-hover : Theme.accent-strong) : Theme.card;
             border-width: checked ? 0px : 1.5px;
-            border-color: touch.has-hover || focus.has-focus ? Theme.accent-strong : Theme.text-subtle;
+            border-color: root.enabled && (touch.has-hover || focus.has-focus) ? Theme.accent-strong : Theme.text-subtle;
             animate background { duration: Theme.fast; }
 
             Glyph {
@@ -307,11 +310,12 @@ export component CheckBox {
             vertical-alignment: center;
             font-family: Theme.font;
             font-size: Theme.small;
-            color: Theme.text;
+            color: root.enabled ? Theme.text : Theme.text-muted;
         }
     }
 
     focus := FocusScope {
+        enabled: root.enabled;
         key-pressed(event) => {
             if (event.text == " ") {
                 root.toggle();
@@ -322,6 +326,7 @@ export component CheckBox {
     }
 
     touch := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { root.toggle(); }
     }

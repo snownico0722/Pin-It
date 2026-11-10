@@ -299,6 +299,69 @@ pub fn apply_topmost(hwnd: Hwnd) -> bool {
     }
 }
 
+/// Promote PinIt within the topmost band, without stealing keyboard focus.
+pub fn raise_topmost(hwnd: Hwnd) -> bool {
+    if !is_valid_window(hwnd) { return false; }
+    let after = if is_topmost(hwnd) { HWND_TOP } else { HWND_TOPMOST };
+    unsafe {
+        SetWindowPos(h(hwnd), Some(after), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
+            .is_ok()
+    }
+}
+
+pub fn is_window_showing(hwnd: Hwnd) -> bool {
+    is_valid_window(hwnd) && unsafe {
+        IsWindowVisible(h(hwnd)).as_bool() && !IsIconic(h(hwnd)).as_bool()
+    }
+}
+
+fn rectangles_overlap(a: &RECT, b: &RECT) -> bool {
+    a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
+
+/// Is another visible topmost window actually over PinIt's bounds and above
+/// it in Z order? EnumWindows runs top-to-bottom; stop on PinIt's own HWND.
+/// Ignore our helper overlays and Windows shell surfaces (e.g. taskbars).
+pub fn overlapping_topmost_above(hwnd: Hwnd) -> bool {
+    if !is_window_showing(hwnd) || !is_topmost(hwnd) { return false; }
+    let Some(bounds) = frame_rect(hwnd) else { return false };
+    struct Scan { target: Hwnd, bounds: RECT, overlapped: bool }
+    unsafe extern "system" fn scan(window: HWND, lp: LPARAM) -> BOOL {
+        unsafe {
+            let state = &mut *(lp.0 as *mut Scan);
+            let candidate = window.0 as Hwnd;
+            if candidate == state.target { return BOOL(0); }
+            if !IsWindowVisible(window).as_bool() || IsIconic(window).as_bool() {
+                return TRUE;
+            }
+            if GetWindowLongW(window, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0 == 0 {
+                return TRUE;
+            }
+            let mut pid = 0u32;
+            GetWindowThreadProcessId(window, Some(&mut pid));
+            if pid == GetCurrentProcessId() || is_shell_class(&class_name(candidate)) {
+                return TRUE;
+            }
+            let mut cloaked = 0u32;
+            if DwmGetWindowAttribute(
+                window, DWMWA_CLOAKED,
+                &mut cloaked as *mut _ as *mut _,
+                size_of::<u32>() as u32,
+            ).is_ok() && cloaked != 0 {
+                return TRUE;
+            }
+            if frame_rect(candidate).is_some_and(|r| rectangles_overlap(&state.bounds, &r)) {
+                state.overlapped = true;
+                return BOOL(0);
+            }
+            TRUE
+        }
+    }
+    let mut state = Scan { target: hwnd, bounds, overlapped: false };
+    unsafe { let _ = EnumWindows(Some(scan), LPARAM(&mut state as *mut _ as isize)); }
+    state.overlapped
+}
+
 pub fn remove_topmost(hwnd: Hwnd) -> bool {
     unsafe {
         SetWindowPos(h(hwnd), Some(HWND_NOTOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)
@@ -646,6 +709,17 @@ mod tests {
         assert_eq!(percent_to_alpha(100), 255);
         assert_eq!(percent_to_alpha(150), 255);
         assert_eq!(alpha_to_percent(-3), 0);
+    }
+
+    #[test]
+    fn overlapping_bounds_only_count_actual_intersection() {
+        let a = RECT { left: -200, top: 0, right: 100, bottom: 80 };
+        let b = RECT { left: 99, top: 20, right: 600, bottom: 120 };
+        let c = RECT { left: 100, top: 10, right: 200, bottom: 70 };
+        let d = RECT { left: 200, top: 90, right: 400, bottom: 150 };
+        assert!(rectangles_overlap(&a, &b));
+        assert!(!rectangles_overlap(&a, &c), "touching edges are not overlap");
+        assert!(!rectangles_overlap(&a, &d));
     }
 
     #[test]

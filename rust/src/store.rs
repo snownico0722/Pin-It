@@ -96,6 +96,12 @@ pub struct Settings {
     pub show_notifications: bool,
     #[serde(default = "yes")]
     pub pin_when_focused: bool,
+    /// Event-driven raising applies only to PinIt's manual pin and mini mode.
+    #[serde(default = "yes")]
+    pub keep_absolute_topmost: bool,
+    /// Optional 500-ms obscuration check on top of the event-driven strategy.
+    #[serde(default)]
+    pub aggressive_mode: bool,
     pub has_seen_tray_notice: bool,
     pub start_with_windows: bool,
     pub ui_language: String,
@@ -110,6 +116,8 @@ impl Default for Settings {
             enable_sound: true,
             show_notifications: false,
             pin_when_focused: true,
+            keep_absolute_topmost: true,
+            aggressive_mode: false,
             has_seen_tray_notice: false,
             start_with_windows: false,
             ui_language: "system".into(),
@@ -235,6 +243,8 @@ mod tests {
         assert!(state.pins.is_empty());
         assert!(state.settings.enable_sound);
         assert!(state.settings.pin_when_focused);
+        assert!(state.settings.keep_absolute_topmost);
+        assert!(!state.settings.aggressive_mode);
         assert!(serde_json::from_str::<State>("not json").is_err());
     }
 
@@ -245,6 +255,18 @@ mod tests {
         state.settings.pin_when_focused = false;
         let saved: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
         assert!(!saved.settings.pin_when_focused);
+    }
+
+    #[test]
+    fn absolute_and_aggressive_settings_survive_legacy_load_and_round_trip() {
+        let mut state: State = serde_json::from_str(r#"{"settings":{"pin_when_focused":false}}"#).unwrap();
+        assert!(state.settings.keep_absolute_topmost);
+        assert!(!state.settings.aggressive_mode);
+        state.settings.keep_absolute_topmost = false;
+        state.settings.aggressive_mode = true;
+        let again: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(!again.settings.keep_absolute_topmost);
+        assert!(again.settings.aggressive_mode, "disabled dependency must retain the choice");
     }
 
     #[test]

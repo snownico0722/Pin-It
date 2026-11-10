@@ -12,6 +12,14 @@ msgid "Always on top while PinIt has focus"
 msgstr "获得焦点时自动置顶"
 
 msgctxt "ui"
+msgid "Aggressive mode"
+msgstr "激进模式"
+
+msgctxt "ui"
+msgid "Keep PinIt above other topmost windows"
+msgstr "保持绝对置顶"
+
+msgctxt "ui"
 msgid "About"
 msgstr "关于"
 

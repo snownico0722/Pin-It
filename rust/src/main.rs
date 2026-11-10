@@ -95,6 +95,7 @@ struct App {
     hotkey_problems: Vec<String>,
     visible: bool,
     reenforce_timer: slint::Timer,
+    aggressive_timer: slint::Timer,
     save_timer: slint::Timer,
     pin_drag: Option<PinDrag>,
     brand_drag: Option<BrandDrag>,
@@ -131,6 +132,7 @@ fn main() {
         hotkey_problems: Vec::new(),
         visible: false,
         reenforce_timer: slint::Timer::default(),
+        aggressive_timer: slint::Timer::default(),
         save_timer: slint::Timer::default(),
         pin_drag: None,
         brand_drag: None,
@@ -151,6 +153,8 @@ fn main() {
         ui.set_sound(a.state.settings.enable_sound);
         ui.set_notifications(a.state.settings.show_notifications);
         ui.set_pin_when_focused(a.state.settings.pin_when_focused);
+        ui.set_keep_absolute_topmost(a.state.settings.keep_absolute_topmost);
+        ui.set_aggressive_mode(a.state.settings.aggressive_mode);
         ui.set_autostart(autostart::is_enabled());
         ui.set_language_index(i18n::index(&a.state.settings.ui_language));
     }
@@ -336,6 +340,16 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
                 app.state.settings.pin_when_focused = on;
                 app.sync_own_topmost();
             }
+            "keep_absolute_topmost" => {
+                app.state.settings.keep_absolute_topmost = on;
+                app.update_watchers();
+                if on { app.raise_absolute_topmost(); }
+            }
+            "aggressive_mode" => {
+                app.state.settings.aggressive_mode = on;
+                app.update_watchers();
+                if on { app.check_aggressive_topmost(); }
+            }
             "autostart" => {
                 if !autostart::set_enabled(on) {
                     app.toast(app.t("Couldn't change the startup setting."));
@@ -429,7 +443,11 @@ fn on_host_event(app: &Shared, event: host::Event) {
         }
         TrayMenu { x, y } => tray_menu(app, x, y),
         ShowRequested => app.borrow_mut().show_window(),
-        ForegroundChanged => app.borrow_mut().reenforce(),
+        ForegroundChanged => {
+            let mut a = app.borrow_mut();
+            a.reenforce();
+            a.raise_absolute_topmost();
+        },
         SessionEnding => {
             let mut a = app.borrow_mut();
             a.pins.set_session_ending(true);
@@ -628,6 +646,32 @@ impl App {
         applied
     }
 
+    /// Permanent manual/mini mode can ask for Z-order protection; the
+    /// focus-only rule must never fight a different focused application.
+    fn absolute_topmost_active(&self) -> Option<Hwnd> {
+        if !self.visible || !self.state.settings.keep_absolute_topmost {
+            return None;
+        }
+        let ui = self.ui()?;
+        if !ui.get_self_pinned() && !ui.get_compact() { return None; }
+        let hwnd = self.main_hwnd()?;
+        win::is_window_showing(hwnd).then_some(hwnd)
+    }
+
+    fn raise_absolute_topmost(&self) {
+        if let Some(hwnd) = self.absolute_topmost_active() {
+            win::raise_topmost(hwnd);
+        }
+    }
+
+    fn check_aggressive_topmost(&self) {
+        if !self.state.settings.aggressive_mode { return; }
+        let Some(hwnd) = self.absolute_topmost_active() else { return };
+        if !win::is_topmost(hwnd) || win::overlapping_topmost_above(hwnd) {
+            win::raise_topmost(hwnd);
+        }
+    }
+
     fn set_self_pinned(&mut self, pinned: bool) -> bool {
         let Some(ui) = self.ui() else { return false };
         let previous = ui.get_self_pinned();
@@ -638,6 +682,7 @@ impl App {
             self.toast(self.t("Couldn't change PinIt's always-on-top setting."));
             return false;
         }
+        self.raise_absolute_topmost();
         true
     }
 
@@ -661,6 +706,7 @@ impl App {
         }
         ui.set_compact(compact);
         self.sync_own_topmost();
+        self.raise_absolute_topmost();
         let size = if compact { slint::LogicalSize::new(144.0, 72.0) } else { self.full_size };
         // Slint applies changed min/max constraints on the next event turn.
         // Resize after that, so the old full/compact width cannot clamp us.
@@ -936,6 +982,25 @@ impl App {
             });
         } else if !active {
             self.reenforce_timer.stop();
+        }
+
+        let aggressive = self.visible
+            && self.state.settings.keep_absolute_topmost
+            && self.state.settings.aggressive_mode
+            && self.ui().is_some_and(|ui| ui.get_self_pinned() || ui.get_compact());
+        if aggressive && !self.aggressive_timer.running() {
+            let me = self.me.clone();
+            self.aggressive_timer.start(
+                slint::TimerMode::Repeated,
+                Duration::from_millis(500),
+                move || {
+                    if let Some(app) = me.upgrade() {
+                        app.borrow().check_aggressive_topmost();
+                    }
+                },
+            );
+        } else if !aggressive {
+            self.aggressive_timer.stop();
         }
     }
 

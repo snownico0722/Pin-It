@@ -287,6 +287,8 @@ export component AppWindow inherits Window {
     in property <bool> self-pinned: false;  // the user's lasting preference
     in property <bool> window-focused: false;
     in-out property <bool> pin-when-focused: true;
+    in-out property <bool> keep-absolute-topmost: true;
+    in-out property <bool> aggressive-mode: false;
     in property <[string]> pin-keys;           // the pin shortcut, for the hint line
     in-out property <bool> sound;
     in-out property <bool> notifications;
@@ -741,7 +743,7 @@ export component AppWindow inherits Window {
     Sheet {
         open: !root.compact && root.settings-open;
         title: @tr("ui" => "Settings");
-        sheet-height: 275px;
+        sheet-height: 335px;
         close => { root.settings-open = false; }
 
         VerticalLayout {
@@ -750,6 +752,17 @@ export component AppWindow inherits Window {
                 text: @tr("ui" => "Always on top while PinIt has focus");
                 checked <=> root.pin-when-focused;
                 toggled(on) => { root.setting-changed("pin_when_focused", on); }
+            }
+            CheckBox {
+                text: @tr("ui" => "Keep PinIt above other topmost windows");
+                checked <=> root.keep-absolute-topmost;
+                toggled(on) => { root.setting-changed("keep_absolute_topmost", on); }
+            }
+            CheckBox {
+                text: @tr("ui" => "Aggressive mode");
+                enabled: root.keep-absolute-topmost;
+                checked <=> root.aggressive-mode;
+                toggled(on) => { root.setting-changed("aggressive_mode", on); }
             }
             CheckBox {
                 text: @tr("ui" => "Play a sound when pinning");
