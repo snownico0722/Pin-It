@@ -1,11 +1,11 @@
 //! pins — managed windows, their always-on-top state, and keeping it applied.
 //!
-//! Pure bookkeeping over `win`: no UI, no timers. The app calls `reenforce`
-//! on a timer and when the foreground window changes, and saves whatever
-//! `saved()` returns.
+//! Bookkeeping over `win`: no UI or timers. `pin_worker` owns the live state
+//! and performs foreign-window calls off the UI thread.
 
 use crate::store::{self, SavedPin};
 use crate::win::{self, Hwnd};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
 
 #[derive(Clone, Debug)]
 pub struct Pinned {
@@ -74,14 +74,32 @@ pub struct Reenforced {
     pub restored: Vec<Hwnd>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Pins {
     pinned: Vec<Pinned>,
     pending: Vec<SavedPin>,
     session_ending: bool,
+    stopping: Arc<AtomicBool>,
+    recovery_changed: Option<Arc<dyn Fn(&Pins) + Send + Sync>>,
 }
 
 impl Pins {
+    /// Initial UI snapshot while the worker discovers already-open windows.
+    pub fn waiting(saved: Vec<SavedPin>) -> Self {
+        Self { pending: saved, ..Self::default() }
+    }
+
+    pub fn set_worker_hooks(&mut self, stopping: Arc<AtomicBool>, changed: impl Fn(&Pins) + Send + Sync + 'static) {
+        self.stopping = stopping;
+        self.recovery_changed = Some(Arc::new(changed));
+    }
+
+    fn publish_recovery(&self) {
+        if let Some(changed) = &self.recovery_changed { changed(self); }
+    }
+
+    fn stopping(&self) -> bool { self.stopping.load(Ordering::Acquire) }
+
     /// All managed live windows, including entries with always-on-top turned off.
     pub fn pinned(&self) -> &[Pinned] {
         &self.pinned
@@ -114,10 +132,11 @@ impl Pins {
         if self.is_managed(hwnd) {
             return self.set_enabled(hwnd, true);
         }
-        self.manage(hwnd, true)
+        self.manage(hwnd, true, None)
     }
 
-    fn manage(&mut self, hwnd: Hwnd, enabled: bool) -> Result<(), PinError> {
+    fn manage(&mut self, hwnd: Hwnd, enabled: bool, saved: Option<&SavedPin>) -> Result<(), PinError> {
+        if self.stopping() { return Err(PinError::Gone); }
         if !win::is_valid_window(hwnd) {
             return Err(PinError::Gone);
         }
@@ -129,11 +148,8 @@ impl Pins {
         let was_topmost = win::is_topmost(hwnd);
         let was_layered = win::is_layered(hwnd);
         let original_layered = win::layered_attributes(hwnd);
-        Self::apply_enabled(hwnd, enabled, &process)?;
-        crate::logfile::info!("Managing a window of {process} (pinned: {enabled})");
         let was_click_through = win::is_click_through(hwnd);
-        store::consume_one_matching(&mut self.pending, &process, &title);
-        self.pinned.push(Pinned {
+        let mut pin = Pinned {
             hwnd,
             title,
             process,
@@ -145,7 +161,30 @@ impl Pins {
             was_topmost,
             was_click_through,
             opacity_changed: false,
-        });
+        };
+        // Saved original flags also cover recovery after a previous crash.
+        if let Some(saved) = saved {
+            pin.was_layered &= saved.was_layered;
+            pin.original_layered = saved.original_layered.clone().or(pin.original_layered);
+            pin.was_topmost &= saved.was_topmost;
+            pin.was_click_through &= saved.was_click_through;
+        }
+        self.pinned.push(pin);
+        // Cleanup needs the original styles BEFORE the first foreign call,
+        // including a new pin or the early items of a blocked restore batch.
+        // This snapshot is private to cleanup; the UI awaits the real result.
+        self.publish_recovery();
+        let result = if self.stopping() { Err(PinError::Gone) }
+            else { Self::apply_enabled(hwnd, enabled, &self.pinned.last().unwrap().process) };
+        if let Err(error) = result {
+            self.pinned.pop();
+            self.publish_recovery();
+            return Err(error);
+        }
+        let pin = self.pinned.last().unwrap();
+        crate::logfile::info!("Managing a window of {} (pinned: {enabled})", pin.process);
+        store::consume_one_matching(&mut self.pending, &pin.process, &pin.title);
+        self.publish_recovery();
         Ok(())
     }
 
@@ -164,19 +203,30 @@ impl Pins {
 
     /// Toggle only always-on-top. Opacity and click-through stay under management.
     pub fn set_enabled(&mut self, hwnd: Hwnd, enabled: bool) -> Result<(), PinError> {
+        if self.stopping() { return Err(PinError::Gone); }
         let p = self.find(hwnd).ok_or(PinError::NotPinned)?;
         Self::apply_enabled(hwnd, enabled, &p.process)?;
         p.enabled = enabled;
+        self.publish_recovery();
         Ok(())
     }
 
     /// Attempt every restoration even when an earlier Win32 operation failed.
     /// The UI still allows removing the pin; it reports partial failure instead
     /// of incorrectly claiming that the foreign window was fully restored.
-    fn release(p: &Pinned, force_unpin: bool) -> bool {
+    fn release(p: &Pinned) -> bool {
         if !win::is_valid_window(p.hwnd) {
             return true; // closed windows need no restoration
         }
+        let mut ok = Self::release_styles(p);
+        ok &= win::remove_topmost(p.hwnd) && !win::is_topmost(p.hwnd);
+        if !ok {
+            crate::logfile::warning!("Could not completely restore a window of {}", p.process);
+        }
+        ok
+    }
+
+    fn release_styles(p: &Pinned) -> bool {
         let mut ok = true;
         if win::is_click_through(p.hwnd) != p.was_click_through {
             ok &= win::set_click_through(p.hwnd, p.was_click_through);
@@ -184,20 +234,16 @@ impl Pins {
         if p.opacity_changed {
             ok &= win::restore_opacity(p.hwnd, p.was_layered, p.original_layered.as_ref());
         }
-        if force_unpin || !p.was_topmost {
-            ok &= win::remove_topmost(p.hwnd) && !win::is_topmost(p.hwnd);
-        }
-        if !ok {
-            crate::logfile::warning!("Could not completely restore a window of {}", p.process);
-        }
         ok
     }
 
     /// Remove the managed entry, turn off always-on-top, and restore other styles.
     pub fn unpin(&mut self, hwnd: Hwnd) -> Option<(Pinned, bool)> {
         let i = self.pinned.iter().position(|p| p.hwnd == hwnd)?;
-        let p = self.pinned.remove(i);
-        let restored = Self::release(&p, true);
+        let p = self.pinned[i].clone();
+        let restored = Self::release(&p);
+        self.pinned.remove(i);
+        self.publish_recovery();
         Some((p, restored))
     }
 
@@ -208,6 +254,7 @@ impl Pins {
         let mut n = 0;
         let mut failures = 0;
         for p in self.pinned.iter_mut().filter(|p| p.enabled) {
+            if self.stopping.load(Ordering::Acquire) { break; }
             if Self::apply_enabled(p.hwnd, false, &p.process).is_ok() {
                 p.enabled = false;
                 n += 1;
@@ -219,6 +266,7 @@ impl Pins {
             p.enabled = false;
             n += 1;
         }
+        self.publish_recovery();
         (n, failures)
     }
 
@@ -235,6 +283,7 @@ impl Pins {
     }
 
     pub fn set_opacity(&mut self, hwnd: Hwnd, percent: i32) -> Result<i32, PinError> {
+        if self.stopping() { return Err(PinError::Gone); }
         let p = self.find(hwnd).ok_or(PinError::NotPinned)?;
         // Avoid damaging per-pixel alpha windows whose existing layered
         // attributes cannot be read and restored.
@@ -242,11 +291,15 @@ impl Pins {
             return Err(PinError::UnsupportedTransparency);
         }
         let percent = percent.clamp(win::MIN_OPACITY, win::MAX_OPACITY);
+        p.opacity_changed = true;
+        self.publish_recovery();
+        if self.stopping() { return Err(PinError::Gone); }
         if !win::set_opacity_percent(hwnd, percent) {
             return Err(PinError::Gone);
         }
+        let p = self.find(hwnd).unwrap();
         p.opacity = percent;
-        p.opacity_changed = true;
+        self.publish_recovery();
         Ok(percent)
     }
 
@@ -256,18 +309,21 @@ impl Pins {
     }
 
     pub fn set_click_through(&mut self, hwnd: Hwnd, enabled: bool) -> Result<(), PinError> {
+        if self.stopping() { return Err(PinError::Gone); }
         let opacity = self.find(hwnd).ok_or(PinError::NotPinned)?.opacity;
         // Windows only honours click-through on a layered window, and a layered
         // window needs an alpha to be drawn at all: setting the opacity does both.
         if enabled && !win::is_layered(hwnd) {
             self.set_opacity(hwnd, opacity)?;
         }
+        if self.stopping() { return Err(PinError::Gone); }
         if !win::set_click_through(hwnd, enabled) {
             return Err(PinError::Gone);
         }
         if let Some(p) = self.find(hwnd) {
             p.click_through = enabled;
         }
+        self.publish_recovery();
         Ok(())
     }
 
@@ -278,7 +334,7 @@ impl Pins {
         let mut out = Reenforced::default();
         // While Windows is closing every app, a window disappearing is not the
         // user closing it; dropping its pin would lose it across the restart.
-        if self.session_ending {
+        if self.session_ending || self.stopping() {
             return out;
         }
         let before = self.pinned.len();
@@ -286,6 +342,7 @@ impl Pins {
         out.list_changed = self.pinned.len() != before;
 
         for p in &mut self.pinned {
+            if self.stopping.load(Ordering::Acquire) { break; }
             if p.enabled && !win::is_topmost(p.hwnd) {
                 win::apply_topmost(p.hwnd);
             }
@@ -300,6 +357,7 @@ impl Pins {
         // windows only while saved pins are waiting, on the existing timer.
         if !self.pending.is_empty() {
             for w in win::enumerate_windows() {
+                if self.stopping() { break; }
                 if self.is_managed(w.hwnd) { continue; }
                 if let Some(saved) = self.pending.iter().find(|s| s.matches(&w.process, &w.title)).cloned() {
                     if self.apply_saved(w.hwnd, &saved) {
@@ -311,21 +369,13 @@ impl Pins {
                 }
             }
         }
+        self.publish_recovery();
         out
     }
 
     fn apply_saved(&mut self, hwnd: Hwnd, saved: &SavedPin) -> bool {
-        if self.manage(hwnd, saved.enabled).is_err() {
+        if self.manage(hwnd, saved.enabled, Some(saved)).is_err() {
             return false;
-        }
-        // After a crash the window still carries PinIt's changes from last
-        // time, which manage() just recorded as the app's own. The saved flags
-        // know better.
-        if let Some(p) = self.find(hwnd) {
-            p.was_layered &= saved.was_layered;
-            p.original_layered = saved.original_layered.clone().or(p.original_layered.clone());
-            p.was_topmost &= saved.was_topmost;
-            p.was_click_through &= saved.was_click_through;
         }
         let percent = win::alpha_to_percent(saved.opacity);
         if percent < 100 && self.set_opacity(hwnd, percent).is_err() {
@@ -344,6 +394,7 @@ impl Pins {
         let live = win::enumerate_windows();
         let mut restored = Vec::new();
         for s in &saved {
+            if self.stopping() { break; }
             if let Some(w) = live.iter().find(|w| !self.is_managed(w.hwnd) && s.matches(&w.process, &w.title)) {
                 if self.apply_saved(w.hwnd, s) {
                     if s.enabled {
@@ -371,15 +422,23 @@ impl Pins {
         self.session_ending = ending;
     }
 
-    /// On quit: give every window back. After a manual quit the pins are
-    /// forgotten; at logoff/shutdown they are kept for the next login.
-    pub fn release_all(&mut self) {
+    /// Exit is best effort and bounded by the UI's shutdown deadline. Submit
+    /// every unpin first, so one hung style-restoration target cannot leave
+    /// unrelated healthy windows on top. These requests are asynchronous;
+    /// there is deliberately no immediate is_topmost success check.
+    pub fn release_for_exit(&self) {
         for p in &self.pinned {
-            Self::release(p, false);
+            if !p.was_topmost && win::is_valid_window(p.hwnd) {
+                win::remove_topmost_async(p.hwnd);
+            }
         }
-        if !self.session_ending {
-            self.pinned.clear();
-            self.pending.clear();
+        for p in &self.pinned {
+            if !win::is_valid_window(p.hwnd) { continue; }
+            let needs_styles = p.opacity_changed
+                || win::is_click_through(p.hwnd) != p.was_click_through;
+            if needs_styles && (!win::responds_to_messages(p.hwnd, 50) || !Self::release_styles(p)) {
+                crate::logfile::warning!("Could not restore window styles on exit for {}", p.process);
+            }
         }
     }
 
