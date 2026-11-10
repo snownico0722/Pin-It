@@ -94,6 +94,8 @@ impl Default for Shortcuts {
 pub struct Settings {
     pub enable_sound: bool,
     pub show_notifications: bool,
+    #[serde(default = "yes")]
+    pub pin_when_focused: bool,
     pub has_seen_tray_notice: bool,
     pub start_with_windows: bool,
     pub ui_language: String,
@@ -107,6 +109,7 @@ impl Default for Settings {
         Settings {
             enable_sound: true,
             show_notifications: false,
+            pin_when_focused: true,
             has_seen_tray_notice: false,
             start_with_windows: false,
             ui_language: "system".into(),
@@ -231,7 +234,17 @@ mod tests {
         let state: State = serde_json::from_str("{}").unwrap();
         assert!(state.pins.is_empty());
         assert!(state.settings.enable_sound);
+        assert!(state.settings.pin_when_focused);
         assert!(serde_json::from_str::<State>("not json").is_err());
+    }
+
+    #[test]
+    fn focus_topmost_setting_defaults_on_and_saves_off() {
+        let mut state: State = serde_json::from_str(r#"{"settings":{"enable_sound":false}}"#).unwrap();
+        assert!(state.settings.pin_when_focused);
+        state.settings.pin_when_focused = false;
+        let saved: State = serde_json::from_str(&serde_json::to_string(&state).unwrap()).unwrap();
+        assert!(!saved.settings.pin_when_focused);
     }
 
     #[test]

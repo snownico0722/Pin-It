@@ -48,6 +48,12 @@ const ICON_PX: u32 = 48;
 const DRAG_POLL_INTERVAL_MS: u64 = 16;
 const DRAG_THRESHOLD_PX: u32 = 6;
 
+// The titlebar pin is a long-term choice; compact and focus add temporary
+// reasons for topmost without changing that choice.
+fn own_topmost_enabled(manual: bool, compact: bool, pin_when_focused: bool, focused: bool) -> bool {
+    manual || compact || (pin_when_focused && focused)
+}
+
 const MENU_SHOW: u32 = 1;
 const MENU_PICK: u32 = 2;
 const MENU_UNPIN_ALL: u32 = 3;
@@ -144,6 +150,7 @@ fn main() {
         ui.set_animations(win::animations_enabled());
         ui.set_sound(a.state.settings.enable_sound);
         ui.set_notifications(a.state.settings.show_notifications);
+        ui.set_pin_when_focused(a.state.settings.pin_when_focused);
         ui.set_autostart(autostart::is_enabled());
         ui.set_language_index(i18n::index(&a.state.settings.ui_language));
     }
@@ -179,6 +186,7 @@ fn main() {
         ui.window().on_close_requested(move || {
             let mut a = app.borrow_mut();
             a.visible = false;
+            a.sync_own_topmost();
             a.cancel_drag();
             flash::hide();
             if !a.state.settings.has_seen_tray_notice {
@@ -324,6 +332,10 @@ fn connect_ui(ui: &AppWindow, app: &Shared) {
         match name.as_str() {
             "sound" => app.state.settings.enable_sound = on,
             "notifications" => app.state.settings.show_notifications = on,
+            "pin_when_focused" => {
+                app.state.settings.pin_when_focused = on;
+                app.sync_own_topmost();
+            }
             "autostart" => {
                 if !autostart::set_enabled(on) {
                     app.toast(app.t("Couldn't change the startup setting."));
@@ -565,32 +577,67 @@ impl App {
 
     fn show_window(&mut self) {
         let Some(ui) = self.ui() else { return };
+        // Raise before requesting focus: another topmost fullscreen window
+        // would otherwise keep PinIt covered even after activation.
+        if self.state.settings.pin_when_focused {
+            ui.set_window_focused(true);
+        }
         let _ = ui.show();
         self.visible = true;
         self.style_title_bar();
         if let Some(hwnd) = self.main_hwnd() {
+            if self.state.settings.pin_when_focused {
+                win::apply_topmost(hwnd);
+            }
             win::force_foreground(hwnd);
         }
+        // Discard the optimistic raise if Windows refused activation.
+        self.sync_own_topmost();
     }
 
     fn hide_window(&mut self) {
         self.cancel_drag();
         flash::hide();
+        self.visible = false;
         if let Some(ui) = self.ui() {
+            ui.set_window_focused(false);
             let _ = ui.hide();
         }
-        self.visible = false;
+        self.sync_own_topmost();
+    }
+
+    // Apply the same combined state as Slint's always-on-top binding.
+    // Win32 updates immediately; Slint retains it across style/size changes.
+    fn sync_own_topmost(&mut self) -> bool {
+        let Some(ui) = self.ui() else { return false };
+        let hwnd = self.main_hwnd();
+        let focused = self.visible && hwnd.is_some_and(|h| h == win::foreground_window());
+        ui.set_window_focused(focused);
+        let wanted = own_topmost_enabled(
+            ui.get_self_pinned(), ui.get_compact(),
+            self.state.settings.pin_when_focused, focused,
+        );
+        let applied = match hwnd {
+            Some(h) if win::is_topmost(h) != wanted => {
+                let ok = if wanted { win::apply_topmost(h) } else { win::remove_topmost(h) };
+                ok && win::is_topmost(h) == wanted
+            }
+            _ => true,
+        };
+        self.update_watchers();
+        applied
     }
 
     fn set_self_pinned(&mut self, pinned: bool) -> bool {
-        let (Some(ui), Some(hwnd)) = (self.ui(), self.main_hwnd()) else { return false };
-        let applied = if pinned { win::apply_topmost(hwnd) } else { win::remove_topmost(hwnd) };
-        if !applied || win::is_topmost(hwnd) != pinned {
+        let Some(ui) = self.ui() else { return false };
+        let previous = ui.get_self_pinned();
+        ui.set_self_pinned(pinned);
+        if !self.sync_own_topmost() {
+            ui.set_self_pinned(previous);
+            self.sync_own_topmost();
             self.toast(self.t("Couldn't change PinIt's always-on-top setting."));
             return false;
         }
-        ui.set_self_pinned(pinned);
-        self.update_watchers();
         true
     }
 
@@ -605,7 +652,6 @@ impl App {
         let Some(ui) = self.ui() else { return };
         let compact = !ui.get_compact();
         if compact {
-            if !self.set_self_pinned(true) { return; }
             self.full_size = ui.window().size().to_logical(ui.window().scale_factor());
             ui.set_picker_open(false);
             ui.set_shortcuts_open(false);
@@ -614,6 +660,7 @@ impl App {
             flash::hide();
         }
         ui.set_compact(compact);
+        self.sync_own_topmost();
         let size = if compact { slint::LogicalSize::new(144.0, 72.0) } else { self.full_size };
         // Slint applies changed min/max constraints on the next event turn.
         // Resize after that, so the old full/compact width cannot clamp us.
@@ -820,11 +867,7 @@ impl App {
     }
 
     fn reenforce(&mut self) {
-        if self.ui().is_some_and(|ui| ui.get_self_pinned()) {
-            if let Some(hwnd) = self.main_hwnd() {
-                if !win::is_topmost(hwnd) { win::apply_topmost(hwnd); }
-            }
-        }
+        self.sync_own_topmost();
         let r = self.pins.reenforce();
         for &hwnd in &r.restored {
             flash::show(hwnd, flash::Kind::Pinned);
@@ -880,7 +923,9 @@ impl App {
     }
 
     fn update_watchers(&self) {
-        let active = self.pins.is_active() || self.ui().is_some_and(|ui| ui.get_self_pinned());
+        let active = self.pins.is_active()
+            || self.ui().is_some_and(|ui| ui.get_self_pinned() || ui.get_compact())
+            || (self.visible && self.state.settings.pin_when_focused);
         host::watch_foreground(active);
         if active && !self.reenforce_timer.running() {
             let me = self.me.clone();
@@ -1114,5 +1159,19 @@ impl App {
         self.refresh_status();
         ui.set_shortcuts_open(false);
         self.toast(self.t("Shortcuts saved."));
+    }
+}
+
+#[cfg(test)]
+mod self_topmost_tests {
+    use super::own_topmost_enabled;
+
+    #[test]
+    fn manual_compact_and_focus_are_independent_reasons_to_pin() {
+        assert!(!own_topmost_enabled(false, false, true, false));
+        assert!(own_topmost_enabled(false, false, true, true));
+        assert!(!own_topmost_enabled(false, false, false, true));
+        assert!(own_topmost_enabled(true, false, false, false));
+        assert!(own_topmost_enabled(false, true, false, false));
     }
 }
